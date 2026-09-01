@@ -2,7 +2,7 @@
 
 package main
 
-import "durpdeploy/internal/runner"
+import runner "github.com/DeveloperDurp/durpdeploy-agent/executor"
 
 func init() {
 	newExecutor = runner.NewExecutorForAgentTest

@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"durpdeploy/internal/agentbootstrap"
-	"durpdeploy/internal/agentstate"
+	"github.com/DeveloperDurp/durpdeploy-agent/bootstrap"
+	"github.com/DeveloperDurp/durpdeploy-agent/state"
 )
 
 func runBootstrap(ctx context.Context, config agentbootstrap.Config) error {

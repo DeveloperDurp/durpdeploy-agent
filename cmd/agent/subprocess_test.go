@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"durpdeploy/internal/agentpayload"
-	"durpdeploy/internal/agentproto"
-	"durpdeploy/internal/agentstate"
-	"durpdeploy/internal/agenttls"
+	"github.com/DeveloperDurp/durpdeploy-agent/payload"
+	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
+	"github.com/DeveloperDurp/durpdeploy-agent/state"
+	"github.com/DeveloperDurp/durpdeploy-agent/transport"
 )
 
 func TestAgentSubprocess_completesOrderedStepsAndRedactsSecrets(t *testing.T) {

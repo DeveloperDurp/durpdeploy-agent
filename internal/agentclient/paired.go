@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"durpdeploy/internal/agentproto"
-	"durpdeploy/internal/agentstate"
-	"durpdeploy/internal/agenttls"
+	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
+	"github.com/DeveloperDurp/durpdeploy-agent/state"
+	"github.com/DeveloperDurp/durpdeploy-agent/transport"
 )
 
 const legacyAgentVersion = agentproto.AgentVersion("legacy-unknown")

@@ -16,9 +16,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"durpdeploy/internal/agentproto"
-	"durpdeploy/internal/agentstate"
-	"durpdeploy/internal/agenttls"
+	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
+	"github.com/DeveloperDurp/durpdeploy-agent/state"
+	"github.com/DeveloperDurp/durpdeploy-agent/transport"
 )
 
 const (

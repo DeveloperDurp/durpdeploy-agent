@@ -27,24 +27,24 @@ forbid_text() {
 	fi
 }
 
-require_file Dockerfile.agent
+require_file Dockerfile
 require_file Makefile
 require_file internal/agentbootstrap/listener.go
 require_file internal/agentbootstrap/commit.go
-require_text Dockerfile.agent 'USER root' \
+require_text Dockerfile 'USER root' \
 	'agent image must bootstrap the agent capabilities as root'
-require_text Dockerfile.agent 'docker-agent-entrypoint.sh' \
+require_text Dockerfile 'agent-entrypoint.sh' \
 	'agent image must drop to its service identity in the entrypoint'
-require_text Dockerfile.agent 'durpdeploy-runner' \
+require_text Dockerfile 'durpdeploy-runner' \
 	'agent image must create the distinct runner identity'
-require_text Dockerfile.agent 'util-linux' \
+require_text Dockerfile 'util-linux' \
 	'agent image must provide util-linux setpriv'
-require_text Dockerfile.agent 'VOLUME ["/var/lib/durpdeploy-agent", "/tmp"]' \
+require_text Dockerfile 'VOLUME ["/var/lib/durpdeploy-agent", "/tmp"]' \
 	'agent image must declare writable state and temporary volumes'
-require_text Makefile 'build-agent' 'Make must build the agent binary'
-require_text Makefile 'agent-container' 'Make must build the agent image'
+require_text Makefile 'build:' 'Make must build the agent binary'
+require_text Makefile 'container:' 'Make must build the agent image'
 require_text internal/agentbootstrap/listener.go \
-	'mux.HandleFunc(agentproto.ServerInitPath, listener.serverInit)' \
+	'mux.HandleFunc(protocol.ServerInitPath, listener.serverInit)' \
 	'agent bootstrap must expose only the server-init pairing route'
 forbid_text internal/agentbootstrap/listener.go 'BootstrapPath' \
 	'agent bootstrap must not restore the code-bearing GET route'
@@ -59,7 +59,7 @@ require_text internal/agentbootstrap/commit.go \
 	'serverPin != pairRequest.ServerPin' \
 	'server-init must bind the request server pin to the mTLS peer certificate'
 
-docker build -f "$root/Dockerfile.agent" -t "$image" "$root"
+docker build -f "$root/Dockerfile" -t "$image" "$root"
 
 if [ "$(docker image inspect --format '{{.Config.User}}' "$image")" != root ]; then
 	echo 'agent container contract: image user is not root for capability bootstrap' >&2
@@ -76,6 +76,7 @@ if docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$i
 fi
 
 docker run --rm --read-only --security-opt no-new-privileges:true \
+	--security-opt apparmor=unconfined \
 	--cap-drop ALL \
 	--cap-add SETUID --cap-add SETGID --cap-add SETPCAP \
 	--cap-add SYS_ADMIN --cap-add SYS_CHROOT \

@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"durpdeploy/internal/agentpayload"
-	"durpdeploy/internal/agentproto"
+	"github.com/DeveloperDurp/durpdeploy-agent/payload"
+	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
 
 // Poll waits for and returns one claimed deployment, or nil when no deployment is available.

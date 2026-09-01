@@ -4,8 +4,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"durpdeploy/internal/agentbootstrap"
-	"durpdeploy/internal/agentproto"
+	"github.com/DeveloperDurp/durpdeploy-agent/bootstrap"
+	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
 
 type config struct {

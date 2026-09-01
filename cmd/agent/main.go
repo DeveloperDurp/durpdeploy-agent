@@ -14,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
-	"durpdeploy/internal/agentclient"
-	"durpdeploy/internal/agentproto"
-	"durpdeploy/internal/agentstate"
-	"durpdeploy/internal/runner"
+	runner "github.com/DeveloperDurp/durpdeploy-agent/executor"
+	"github.com/DeveloperDurp/durpdeploy-agent/internal/agentclient"
+	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
+	"github.com/DeveloperDurp/durpdeploy-agent/state"
 )
 
 const claimFileName = "current-claim.json"

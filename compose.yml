@@ -1,125 +1,7 @@
-# DurpDeploy — containerized production stack.
-#
-# Services:
-#   app        : durpdeploy Go binary (built from ./Dockerfile)
-#   caddy      : reverse proxy + TLS termination
-#   litestream : continuous SQLite WAL replication to S3-compatible storage
-#
-# Copy compose.example.yml to compose.yml and create scoped env files in the
-# same directory before running `docker compose up -d`:
-#   - compose.app.env
-#   - compose.caddy.env
-#   - compose.litestream.env
-#   - compose.agent.env when the optional agent profile is enabled
-
 services:
-  app:
-    # The Go binary image built from ./Dockerfile.
-    build: .
-    image: durpdeploy:latest
-    restart: unless-stopped
-    # Port 8080 is internal only — Caddy talks to it over the compose network.
-    # Don't publish it to the host.
-    env_file:
-      # Shared with Caddy so the app marks browser cookies Secure for HTTPS.
-      - ./compose.caddy.env
-      - ./compose.app.env
-    environment:
-      DURPDEPLOY_DB: /data/durpdeploy.db
-      # Optional. The mounted secret file at /etc/durpdeploy/key is the
-      # primary path; secret/secret.go reads file first, env fallback. Set
-      # this only when delivering the key via env (k8s, swarm, etc.).
-      DURPDEPLOY_SECRET_KEY: ${DURPDEPLOY_SECRET_KEY:-}
-      DURPDEPLOY_LITESTREAM_CHECK_COMMAND: ${DURPDEPLOY_LITESTREAM_CHECK_COMMAND:-}
-      DURPDEPLOY_LITESTREAM_CHECK_INTERVAL: ${DURPDEPLOY_LITESTREAM_CHECK_INTERVAL:-1h}
-    volumes:
-      - durpdeploy-data:/data
-    secrets:
-      - source: durpdeploy_key
-        target: /etc/durpdeploy/key
-    security_opt:
-      - no-new-privileges:true
-    cap_drop: [ALL]
-    read_only: true
-    tmpfs:
-      - /tmp:size=64m,mode=1777
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/login"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    mem_limit: 512m
-    cpus: 1.0
-    pids_limit: 256
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    env_file:
-      - ./compose.caddy.env
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      app:
-        condition: service_healthy
-    security_opt:
-      - no-new-privileges:true
-    cap_drop: [ALL]
-    cap_add:
-      - NET_BIND_SERVICE
-    read_only: true
-    tmpfs:
-      - /tmp:size=32m
-    mem_limit: 256m
-    cpus: 0.5
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  litestream:
-    image: litestream/litestream:0.3
-    restart: unless-stopped
-    command: replicate -config /etc/litestream.yml
-    env_file:
-      - ./compose.litestream.env
-    volumes:
-      - durpdeploy-data:/data
-      - ./deploy/litestream.example.yml:/etc/litestream.yml:ro
-    depends_on:
-      app:
-        condition: service_healthy
-    security_opt:
-      - no-new-privileges:true
-    cap_drop: [ALL]
-    mem_limit: 128m
-    cpus: 0.25
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
   agent:
-    # Optional remote execution agent. Enable with --profile agent.
-    # It talks outbound to the control plane and is not a server sidecar.
-    profiles: [agent]
-    build:
-      context: .
-      dockerfile: Dockerfile.agent
-    image: durpdeploy-agent:latest
+    image: ghcr.io/developerdurp/durpdeploy-agent:latest
+    build: .
     restart: unless-stopped
     env_file:
       - ./compose.agent.env
@@ -130,6 +12,7 @@ services:
       - /sys/fs/cgroup/durpdeploy:/sys/fs/cgroup/durpdeploy:rw
     security_opt:
       - no-new-privileges:true
+      - apparmor:unconfined
     cap_drop: [ALL]
     cap_add: [SETUID, SETGID, SETPCAP, SYS_ADMIN, SYS_CHROOT]
     read_only: true
@@ -138,18 +21,6 @@ services:
     mem_limit: 512m
     cpus: 1.0
     pids_limit: 128
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
 
 volumes:
-  durpdeploy-data:
-  caddy-data:
-  caddy-config:
   durpdeploy-agent-state:
-
-secrets:
-  durpdeploy_key:
-    file: ./secrets/durpdeploy_key  # operator creates this file with: openssl rand -base64 32 > secrets/durpdeploy_key && chmod 0600 secrets/durpdeploy_key

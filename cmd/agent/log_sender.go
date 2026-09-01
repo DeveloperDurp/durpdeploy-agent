@@ -4,8 +4,8 @@ import (
 	"context"
 	"sync"
 
-	"durpdeploy/internal/agentclient"
-	"durpdeploy/internal/agentproto"
+	"github.com/DeveloperDurp/durpdeploy-agent/internal/agentclient"
+	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
 
 type logSender struct {

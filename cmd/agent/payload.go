@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	"durpdeploy/internal/runner"
+	runner "github.com/DeveloperDurp/durpdeploy-agent/executor"
 )
 
 type deploymentPayload struct {

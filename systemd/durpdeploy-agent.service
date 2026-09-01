@@ -10,7 +10,7 @@
 
 [Unit]
 Description=DurpDeploy remote execution agent
-Documentation=https://gitlab.example.com/durpdeploy/blob/main/docs/agent-protocol.md
+Documentation=https://github.com/DeveloperDurp/durpdeploy-agent/blob/main/docs/agent-protocol.md
 After=network-online.target
 Wants=network-online.target
 
