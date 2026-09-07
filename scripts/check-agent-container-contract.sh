@@ -59,23 +59,23 @@ require_text internal/agentbootstrap/commit.go \
 	'serverPin != pairRequest.ServerPin' \
 	'server-init must bind the request server pin to the mTLS peer certificate'
 
-docker build -f "$root/Dockerfile" -t "$image" "$root"
+podman build -f "$root/Dockerfile" -t "$image" "$root"
 
-if [ "$(docker image inspect --format '{{.Config.User}}' "$image")" != root ]; then
+if [ "$(podman image inspect --format '{{.Config.User}}' "$image")" != root ]; then
 	echo 'agent container contract: image user is not root for capability bootstrap' >&2
 	exit 1
 fi
-if [ "$(docker image inspect --format '{{json .Config.ExposedPorts}}' "$image")" != null ]; then
+if [ "$(podman image inspect --format '{{json .Config.ExposedPorts}}' "$image")" != null ]; then
 	echo 'agent container contract: image must not expose a port' >&2
 	exit 1
 fi
-if docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$image" | \
+if podman image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$image" | \
 	grep -Eq '^DURPDEPLOY_(SECRET_KEY|DB)='; then
 	echo 'agent container contract: image includes server storage or secret configuration' >&2
 	exit 1
 fi
 
-docker run --rm --read-only --security-opt no-new-privileges:true \
+podman run --rm --read-only --security-opt no-new-privileges:true \
 	--security-opt apparmor=unconfined \
 	--cap-drop ALL \
 	--cap-add SETUID --cap-add SETGID --cap-add SETPCAP \
@@ -128,7 +128,7 @@ EOF
 		/bin/bash /script.sh
 '
 
-help=$(docker run --rm --read-only "$image" --help)
+help=$(podman run --rm --read-only "$image" --help)
 for required in DURPDEPLOY_AGENT_LISTEN_ADDR DURPDEPLOY_AGENT_STATE_DIR \
 	DURPDEPLOY_AGENT_VERSION; do
 	grep -Fq "$required" <<<"$help" || {

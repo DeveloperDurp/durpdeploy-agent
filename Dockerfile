@@ -24,7 +24,7 @@ FROM alpine:3.20
 RUN apk add --no-cache bash ca-certificates util-linux && \
 	adduser -D -H -s /sbin/nologin -u 10001 durpdeploy-agent && \
 	adduser -D -H -s /sbin/nologin -u 10002 durpdeploy-runner && \
-	mkdir -p /var/lib/durpdeploy-agent /tmp && \
+	mkdir -p /var/lib/durpdeploy-agent /tmp /sys/fs/cgroup/durpdeploy && \
 	chown durpdeploy-agent:durpdeploy-agent /var/lib/durpdeploy-agent /tmp && \
 	chmod 0700 /var/lib/durpdeploy-agent
 

@@ -16,14 +16,12 @@ e2e:
 	go test -count=1 -tags agenttest ./cmd/agent -run '^TestAgentSubprocess_'
 
 container:
-	docker build -t $(IMAGE) .
+	podman build -t $(IMAGE) .
 
 agent-run: container
-	docker run --rm \
+	podman run --rm \
 		--publish $(AGENT_PORT):10943 \
 		--volume $(AGENT_STATE_VOLUME):/var/lib/durpdeploy-agent \
-		--volume /sys/fs/cgroup/durpdeploy:/sys/fs/cgroup/durpdeploy:rw \
-		--read-only \
 		--tmpfs /tmp:size=64m,mode=1777 \
 		--security-opt no-new-privileges=true \
 		--security-opt apparmor=unconfined \
