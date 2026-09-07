@@ -4,14 +4,16 @@ FROM golang:1.26-alpine AS builder
 
 WORKDIR /build
 
-COPY go.mod go.sum ./
+COPY go.mod ./
 RUN go mod download
 
 COPY cmd/agent ./cmd/agent
+COPY bootstrap ./bootstrap
 COPY executor ./executor
 COPY internal ./internal
 COPY payload ./payload
 COPY protocol ./protocol
+COPY state ./state
 COPY transport ./transport
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags='-w -s' -trimpath \
     -o /out/durpdeploy-agent ./cmd/agent

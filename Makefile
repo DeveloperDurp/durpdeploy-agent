@@ -1,7 +1,10 @@
-.PHONY: build test e2e container container-contract compose-contract systemd-contract documentation-contract check
+.PHONY: build test e2e container container-contract compose-contract systemd-contract documentation-contract check agent-run
 
 BINARY_NAME := durpdeploy-agent
 IMAGE ?= durpdeploy-agent:local
+AGENT_STATE_VOLUME ?= durpdeploy-agent-state
+AGENT_PORT ?= 10943
+AGENT_VERSION ?=
 
 build:
 	go build -o $(BINARY_NAME) ./cmd/agent
@@ -14,6 +17,28 @@ e2e:
 
 container:
 	docker build -t $(IMAGE) .
+
+agent-run: container
+	docker run --rm \
+		--publish $(AGENT_PORT):10943 \
+		--volume $(AGENT_STATE_VOLUME):/var/lib/durpdeploy-agent \
+		--volume /sys/fs/cgroup/durpdeploy:/sys/fs/cgroup/durpdeploy:rw \
+		--read-only \
+		--tmpfs /tmp:size=64m,mode=1777 \
+		--security-opt no-new-privileges=true \
+		--security-opt apparmor=unconfined \
+		--cap-drop all \
+		--cap-add SETUID \
+		--cap-add SETGID \
+		--cap-add SETPCAP \
+		--cap-add SYS_ADMIN \
+		--cap-add SYS_CHROOT \
+		--memory 512m \
+		--cpus 1.0 \
+		--pids-limit 128 \
+		--env DURPDEPLOY_AGENT_LISTEN_ADDR=0.0.0.0:10943 \
+		--env DURPDEPLOY_AGENT_STATE_DIR=/var/lib/durpdeploy-agent \
+		$(if $(strip $(AGENT_VERSION)),--env DURPDEPLOY_AGENT_VERSION=$(AGENT_VERSION) )$(IMAGE)
 
 container-contract:
 	AGENT_CONTAINER_IMAGE=$(IMAGE) bash ./scripts/check-agent-container-contract.sh
