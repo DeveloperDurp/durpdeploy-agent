@@ -148,13 +148,27 @@ if grep -Fq 'DURPDEPLOY_AGENT_SERVER_URL' <<<"$help"; then
 	echo 'agent container contract: help exposes manual server configuration' >&2
 	exit 1
 fi
-if invalid=$(podman run "${runtime_args[@]}" "$image" --definitely-invalid 2>&1); then
+printf '%s\n' '--- agent CLI help output ---' "$help" \
+	'--- end agent CLI help output ---'
+printf '%s\n' 'help_required_variables=3' 'help_server_url_absent=1'
+
+invalid_status=0
+invalid=$(podman run "${runtime_args[@]}" "$image" --definitely-invalid 2>&1) || \
+	invalid_status=$?
+if [ "$invalid_status" -eq 0 ]; then
 	echo 'agent container contract: invalid flags must fail' >&2
 	exit 1
 fi
-if ! grep -Fq 'durpdeploy-agent: unknown option: --definitely-invalid' <<<"$invalid"; then
+if [ "$invalid_status" -ne 2 ]; then
+	echo 'agent container contract: invalid flags must exit with status 2' >&2
+	exit 1
+fi
+if [ "$invalid" != 'durpdeploy-agent: unknown option: --definitely-invalid' ]; then
 	echo 'agent container contract: invalid flags must report the rejected option' >&2
 	exit 1
 fi
+printf '%s\n' '--- agent CLI invalid flag output ---' \
+	"agent invalid flag exit=$invalid_status" "$invalid" \
+	'--- end agent CLI invalid flag output ---'
 
 printf '%s\n' 'agent container contract: PASS'
