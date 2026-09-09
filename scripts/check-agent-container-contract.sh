@@ -46,6 +46,8 @@ require_text Makefile 'container:' 'Make must build the agent image'
 require_text Makefile \
 	'--volume /sys/fs/cgroup/durpdeploy:/sys/fs/cgroup/durpdeploy:rw' \
 	'agent-run must mount the delegated cgroup root read-write'
+require_text Makefile '--read-only' \
+	'agent-run must use a read-only root'
 require_text bootstrap/listener.go \
 	'mux.HandleFunc(agentproto.ServerInitPath, listener.serverInit)' \
 	'agent bootstrap must expose only the server-init pairing route'
