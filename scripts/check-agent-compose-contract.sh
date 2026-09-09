@@ -51,7 +51,8 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
     assert agent["cap_drop"] == ["ALL"]
     assert agent["cap_add"] == ["SETUID", "SETGID", "SETPCAP", "SYS_ADMIN", "SYS_CHROOT"]
     assert agent["read_only"] is True
-    assert agent["security_opt"] == ["no-new-privileges:true", "apparmor:unconfined"]
+    security_opt = [option.replace("apparmor=", "apparmor:", 1) for option in agent["security_opt"]]
+    assert security_opt == ["no-new-privileges:true", "apparmor:unconfined"]
     assert "network_mode" not in agent
     volumes = []
     for volume in agent["volumes"]:
