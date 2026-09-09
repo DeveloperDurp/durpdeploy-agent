@@ -80,12 +80,13 @@ if podman image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$i
 	exit 1
 fi
 
-podman run --rm --read-only --security-opt no-new-privileges:true \
+runtime_args=(--rm --read-only --security-opt no-new-privileges:true \
 	--security-opt apparmor=unconfined \
 	--cap-drop ALL \
 	--cap-add SETUID --cap-add SETGID --cap-add SETPCAP \
-	--cap-add SYS_ADMIN --cap-add SYS_CHROOT \
-	"$image" sh -ceu '
+	--cap-add SYS_ADMIN --cap-add SYS_CHROOT)
+
+podman run "${runtime_args[@]}" "$image" sh -ceu '
 	test -w /var/lib/durpdeploy-agent
 	test -w /tmp
 	test ! -w /
@@ -127,13 +128,13 @@ test "$(grep "^NoNewPrivs:" /proc/self/status | tr -s "[:space:]" " " | cut -d "
 EOF
 	chmod 0755 "$sandbox/script.sh"
 	chmod 0711 "$sandbox"
-	chroot "$sandbox" /usr/bin/setpriv \
-		--reuid=10002 --regid=10002 --clear-groups \
+	/usr/bin/setpriv --reuid=10002 --regid=10002 --clear-groups -- \
+		chroot "$sandbox" /usr/bin/setpriv \
 		--bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs -- \
 		/bin/bash /script.sh
 '
 
-help=$(podman run --rm --read-only "$image" --help)
+help=$(podman run "${runtime_args[@]}" "$image" --help)
 for required in DURPDEPLOY_AGENT_LISTEN_ADDR DURPDEPLOY_AGENT_STATE_DIR \
 	DURPDEPLOY_AGENT_VERSION; do
 	grep -Fq "$required" <<<"$help" || {
@@ -143,6 +144,14 @@ for required in DURPDEPLOY_AGENT_LISTEN_ADDR DURPDEPLOY_AGENT_STATE_DIR \
 done
 if grep -Fq 'DURPDEPLOY_AGENT_SERVER_URL' <<<"$help"; then
 	echo 'agent container contract: help exposes manual server configuration' >&2
+	exit 1
+fi
+if invalid=$(podman run "${runtime_args[@]}" "$image" --definitely-invalid 2>&1); then
+	echo 'agent container contract: invalid flags must fail' >&2
+	exit 1
+fi
+if ! grep -Fq 'durpdeploy-agent: unknown option: --definitely-invalid' <<<"$invalid"; then
+	echo 'agent container contract: invalid flags must report the rejected option' >&2
 	exit 1
 fi
 
