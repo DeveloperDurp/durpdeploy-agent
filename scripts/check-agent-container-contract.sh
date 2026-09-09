@@ -43,6 +43,9 @@ require_text Dockerfile 'VOLUME ["/var/lib/durpdeploy-agent", "/tmp"]' \
 	'agent image must declare writable state and temporary volumes'
 require_text Makefile 'build:' 'Make must build the agent binary'
 require_text Makefile 'container:' 'Make must build the agent image'
+require_text Makefile \
+	'--volume /sys/fs/cgroup/durpdeploy:/sys/fs/cgroup/durpdeploy:rw' \
+	'agent-run must mount the delegated cgroup root read-write'
 require_text bootstrap/listener.go \
 	'mux.HandleFunc(agentproto.ServerInitPath, listener.serverInit)' \
 	'agent bootstrap must expose only the server-init pairing route'

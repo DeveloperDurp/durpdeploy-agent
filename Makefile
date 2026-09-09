@@ -22,6 +22,7 @@ agent-run: container
 	podman run --rm \
 		--publish $(AGENT_PORT):10943 \
 		--volume $(AGENT_STATE_VOLUME):/var/lib/durpdeploy-agent \
+		--volume /sys/fs/cgroup/durpdeploy:/sys/fs/cgroup/durpdeploy:rw \
 		--tmpfs /tmp:size=64m,mode=1777 \
 		--security-opt no-new-privileges=true \
 		--security-opt apparmor=unconfined \
