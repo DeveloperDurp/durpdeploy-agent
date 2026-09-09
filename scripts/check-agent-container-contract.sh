@@ -41,6 +41,8 @@ require_text Dockerfile 'util-linux' \
 	'agent image must provide util-linux setpriv'
 require_text Dockerfile 'VOLUME ["/var/lib/durpdeploy-agent", "/tmp"]' \
 	'agent image must declare writable state and temporary volumes'
+forbid_text Dockerfile '/sys/fs/cgroup/durpdeploy' \
+	'agent image must not create the runtime cgroup mountpoint during build'
 require_text Makefile 'build:' 'Make must build the agent binary'
 require_text Makefile 'container:' 'Make must build the agent image'
 require_text Makefile \
