@@ -75,7 +75,7 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
     assert cgroup["source"] == "/sys/fs/cgroup/durpdeploy"
     assert cgroup["target"] == "/sys/fs/cgroup/durpdeploy"
     assert cgroup["type"] == "bind"
-    assert cgroup.get("read_only") is False
+    assert cgroup.get("read_only", False) is False
     agent_text = json.dumps(agent)
     for forbidden in ("/data", "durpdeploy_key", "docker.sock", "privileged", "host"):
         assert forbidden not in agent_text, f"{path}: found forbidden {forbidden}"
