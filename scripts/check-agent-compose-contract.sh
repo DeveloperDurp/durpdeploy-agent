@@ -47,11 +47,11 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
     document = json.loads(path.read_text()) if path.suffix == ".json" else yaml.safe_load(path.read_text())
     services = document["services"]
     agent = services["agent"]
-	assert agent["image"] == "ghcr.io/developerdurp/durpdeploy-agent:latest"
+    assert agent["image"] == "ghcr.io/developerdurp/durpdeploy-agent:latest"
     assert agent["cap_drop"] == ["ALL"]
     assert agent["cap_add"] == ["SETUID", "SETGID", "SETPCAP", "SYS_ADMIN", "SYS_CHROOT"]
     assert agent["read_only"] is True
-	assert agent["security_opt"] == ["no-new-privileges:true", "apparmor:unconfined"]
+    assert agent["security_opt"] == ["no-new-privileges:true", "apparmor:unconfined"]
     assert "network_mode" not in agent
     volumes = []
     for volume in agent["volumes"]:

@@ -29,8 +29,8 @@ forbid_text() {
 
 require_file Dockerfile
 require_file Makefile
-require_file internal/agentbootstrap/listener.go
-require_file internal/agentbootstrap/commit.go
+require_file bootstrap/listener.go
+require_file bootstrap/commit.go
 require_text Dockerfile 'USER root' \
 	'agent image must bootstrap the agent capabilities as root'
 require_text Dockerfile 'agent-entrypoint.sh' \
@@ -43,19 +43,19 @@ require_text Dockerfile 'VOLUME ["/var/lib/durpdeploy-agent", "/tmp"]' \
 	'agent image must declare writable state and temporary volumes'
 require_text Makefile 'build:' 'Make must build the agent binary'
 require_text Makefile 'container:' 'Make must build the agent image'
-require_text internal/agentbootstrap/listener.go \
-	'mux.HandleFunc(protocol.ServerInitPath, listener.serverInit)' \
+require_text bootstrap/listener.go \
+	'mux.HandleFunc(agentproto.ServerInitPath, listener.serverInit)' \
 	'agent bootstrap must expose only the server-init pairing route'
-forbid_text internal/agentbootstrap/listener.go 'BootstrapPath' \
+forbid_text bootstrap/listener.go 'BootstrapPath' \
 	'agent bootstrap must not restore the code-bearing GET route'
-forbid_text internal/agentbootstrap/listener.go '"/agent/v1/bootstrap"' \
+forbid_text bootstrap/listener.go '"/agent/v1/bootstrap"' \
 	'agent bootstrap must not restore the code-bearing GET route'
-require_text internal/agentbootstrap/listener.go 'ClientAuth:   tls.RequestClientCert,' \
+require_text bootstrap/listener.go 'ClientAuth:   tls.RequestClientCert,' \
 	'agent bootstrap TLS must request the server client certificate'
-require_text internal/agentbootstrap/commit.go \
+require_text bootstrap/commit.go \
 	'len(request.TLS.PeerCertificates) != 1' \
 	'server-init must reject requests without exactly one client certificate'
-require_text internal/agentbootstrap/commit.go \
+require_text bootstrap/commit.go \
 	'serverPin != pairRequest.ServerPin' \
 	'server-init must bind the request server pin to the mTLS peer certificate'
 
