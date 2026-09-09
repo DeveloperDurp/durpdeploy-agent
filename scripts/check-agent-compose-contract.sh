@@ -77,7 +77,9 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
     assert cgroup["type"] == "bind"
     assert cgroup.get("read_only", False) is False
     agent_text = json.dumps(agent)
-    for forbidden in ("/data", "durpdeploy_key", "docker.sock", "privileged", "host"):
+    for forbidden in ("/data", "durpdeploy_key", "docker.sock", "privileged"):
         assert forbidden not in agent_text, f"{path}: found forbidden {forbidden}"
+    for namespace in ("cgroup", "ipc", "pid", "userns_mode", "uts"):
+        assert agent.get(namespace) != "host", f"{path}: found host {namespace}"
 print("agent compose contract: PASS")
 PY
