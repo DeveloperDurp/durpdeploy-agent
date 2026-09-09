@@ -29,8 +29,8 @@ forbid_text() {
 
 require_file Dockerfile
 require_file Makefile
-require_file internal/agentbootstrap/listener.go
-require_file internal/agentbootstrap/commit.go
+require_file bootstrap/listener.go
+require_file bootstrap/commit.go
 require_text Dockerfile 'USER root' \
 	'agent image must bootstrap the agent capabilities as root'
 require_text Dockerfile 'agent-entrypoint.sh' \
@@ -41,46 +41,54 @@ require_text Dockerfile 'util-linux' \
 	'agent image must provide util-linux setpriv'
 require_text Dockerfile 'VOLUME ["/var/lib/durpdeploy-agent", "/tmp"]' \
 	'agent image must declare writable state and temporary volumes'
+forbid_text Dockerfile '/sys/fs/cgroup/durpdeploy' \
+	'agent image must not create the runtime cgroup mountpoint during build'
 require_text Makefile 'build:' 'Make must build the agent binary'
 require_text Makefile 'container:' 'Make must build the agent image'
-require_text internal/agentbootstrap/listener.go \
-	'mux.HandleFunc(protocol.ServerInitPath, listener.serverInit)' \
+require_text Makefile \
+	'--volume /sys/fs/cgroup/durpdeploy:/sys/fs/cgroup/durpdeploy:rw' \
+	'agent-run must mount the delegated cgroup root read-write'
+require_text Makefile '--read-only' \
+	'agent-run must use a read-only root'
+require_text bootstrap/listener.go \
+	'mux.HandleFunc(agentproto.ServerInitPath, listener.serverInit)' \
 	'agent bootstrap must expose only the server-init pairing route'
-forbid_text internal/agentbootstrap/listener.go 'BootstrapPath' \
+forbid_text bootstrap/listener.go 'BootstrapPath' \
 	'agent bootstrap must not restore the code-bearing GET route'
-forbid_text internal/agentbootstrap/listener.go '"/agent/v1/bootstrap"' \
+forbid_text bootstrap/listener.go '"/agent/v1/bootstrap"' \
 	'agent bootstrap must not restore the code-bearing GET route'
-require_text internal/agentbootstrap/listener.go 'ClientAuth:   tls.RequestClientCert,' \
+require_text bootstrap/listener.go 'ClientAuth:   tls.RequestClientCert,' \
 	'agent bootstrap TLS must request the server client certificate'
-require_text internal/agentbootstrap/commit.go \
+require_text bootstrap/commit.go \
 	'len(request.TLS.PeerCertificates) != 1' \
 	'server-init must reject requests without exactly one client certificate'
-require_text internal/agentbootstrap/commit.go \
+require_text bootstrap/commit.go \
 	'serverPin != pairRequest.ServerPin' \
 	'server-init must bind the request server pin to the mTLS peer certificate'
 
-docker build -f "$root/Dockerfile" -t "$image" "$root"
+podman build -f "$root/Dockerfile" -t "$image" "$root"
 
-if [ "$(docker image inspect --format '{{.Config.User}}' "$image")" != root ]; then
+if [ "$(podman image inspect --format '{{.Config.User}}' "$image")" != root ]; then
 	echo 'agent container contract: image user is not root for capability bootstrap' >&2
 	exit 1
 fi
-if [ "$(docker image inspect --format '{{json .Config.ExposedPorts}}' "$image")" != null ]; then
+if [ "$(podman image inspect --format '{{json .Config.ExposedPorts}}' "$image")" != null ]; then
 	echo 'agent container contract: image must not expose a port' >&2
 	exit 1
 fi
-if docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$image" | \
+if podman image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$image" | \
 	grep -Eq '^DURPDEPLOY_(SECRET_KEY|DB)='; then
 	echo 'agent container contract: image includes server storage or secret configuration' >&2
 	exit 1
 fi
 
-docker run --rm --read-only --security-opt no-new-privileges:true \
+runtime_args=(--rm --read-only --security-opt no-new-privileges:true \
 	--security-opt apparmor=unconfined \
 	--cap-drop ALL \
 	--cap-add SETUID --cap-add SETGID --cap-add SETPCAP \
-	--cap-add SYS_ADMIN --cap-add SYS_CHROOT \
-	"$image" sh -ceu '
+	--cap-add SYS_ADMIN --cap-add SYS_CHROOT)
+
+podman run "${runtime_args[@]}" "$image" sh -ceu '
 	test -w /var/lib/durpdeploy-agent
 	test -w /tmp
 	test ! -w /
@@ -122,13 +130,13 @@ test "$(grep "^NoNewPrivs:" /proc/self/status | tr -s "[:space:]" " " | cut -d "
 EOF
 	chmod 0755 "$sandbox/script.sh"
 	chmod 0711 "$sandbox"
-	chroot "$sandbox" /usr/bin/setpriv \
-		--reuid=10002 --regid=10002 --clear-groups \
+	/usr/bin/setpriv --reuid=10002 --regid=10002 --clear-groups -- \
+		chroot "$sandbox" /usr/bin/setpriv \
 		--bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs -- \
 		/bin/bash /script.sh
 '
 
-help=$(docker run --rm --read-only "$image" --help)
+help=$(podman run "${runtime_args[@]}" "$image" --help)
 for required in DURPDEPLOY_AGENT_LISTEN_ADDR DURPDEPLOY_AGENT_STATE_DIR \
 	DURPDEPLOY_AGENT_VERSION; do
 	grep -Fq "$required" <<<"$help" || {
@@ -140,5 +148,27 @@ if grep -Fq 'DURPDEPLOY_AGENT_SERVER_URL' <<<"$help"; then
 	echo 'agent container contract: help exposes manual server configuration' >&2
 	exit 1
 fi
+printf '%s\n' '--- agent CLI help output ---' "$help" \
+	'--- end agent CLI help output ---'
+printf '%s\n' 'help_required_variables=3' 'help_server_url_absent=1'
+
+invalid_status=0
+invalid=$(podman run "${runtime_args[@]}" "$image" --definitely-invalid 2>&1) || \
+	invalid_status=$?
+if [ "$invalid_status" -eq 0 ]; then
+	echo 'agent container contract: invalid flags must fail' >&2
+	exit 1
+fi
+if [ "$invalid_status" -ne 2 ]; then
+	echo 'agent container contract: invalid flags must exit with status 2' >&2
+	exit 1
+fi
+if [ "$invalid" != 'durpdeploy-agent: unknown option: --definitely-invalid' ]; then
+	echo 'agent container contract: invalid flags must report the rejected option' >&2
+	exit 1
+fi
+printf '%s\n' '--- agent CLI invalid flag output ---' \
+	"agent invalid flag exit=$invalid_status" "$invalid" \
+	'--- end agent CLI invalid flag output ---'
 
 printf '%s\n' 'agent container contract: PASS'
