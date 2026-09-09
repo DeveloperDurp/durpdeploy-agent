@@ -39,6 +39,7 @@ agent-run: container
 		$(if $(strip $(AGENT_VERSION)),--env DURPDEPLOY_AGENT_VERSION=$(AGENT_VERSION) )$(IMAGE)
 
 container-contract:
+	bash ./scripts/check-agent-container-contract_test.sh
 	AGENT_CONTAINER_IMAGE=$(IMAGE) bash ./scripts/check-agent-container-contract.sh
 
 compose-contract:
