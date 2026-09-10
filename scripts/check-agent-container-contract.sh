@@ -128,7 +128,12 @@ EOF
 		/bin/bash /script.sh
 '
 
-help=$(podman run --rm --read-only "$image" --help)
+help=$(podman run --rm --read-only \
+	--security-opt apparmor=unconfined \
+	--cap-drop ALL \
+	--cap-add SETUID --cap-add SETGID --cap-add SETPCAP \
+	--cap-add SYS_ADMIN --cap-add SYS_CHROOT \
+	"$image" /usr/local/bin/durpdeploy-agent --help)
 for required in DURPDEPLOY_AGENT_LISTEN_ADDR DURPDEPLOY_AGENT_STATE_DIR \
 	DURPDEPLOY_AGENT_VERSION; do
 	grep -Fq "$required" <<<"$help" || {
