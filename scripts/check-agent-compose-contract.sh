@@ -54,13 +54,18 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
 
     if agent["image"] != "ghcr.io/developerdurp/durpdeploy-agent:latest":
         fail("uses an unexpected image")
-    if agent["cap_drop"] != ["ALL"]:
+    cap_drop = [str(value).upper() for value in agent["cap_drop"]]
+    if cap_drop != ["ALL"]:
         fail("does not drop all capabilities")
-    if agent["cap_add"] != ["SETUID", "SETGID", "SETPCAP"]:
+    cap_add = [str(value).upper().removeprefix("CAP_") for value in agent["cap_add"]]
+    if cap_add != ["SETUID", "SETGID", "SETPCAP"]:
         fail("adds capabilities outside the identity switch set")
     if agent.get("read_only") is not True:
         fail("permits a writable image root")
-    security_opt = [option.replace("apparmor=", "apparmor:", 1) for option in agent["security_opt"]]
+    security_opt = [
+        str(option).casefold().replace("apparmor=", "apparmor:", 1)
+        for option in agent["security_opt"]
+    ]
     if security_opt != ["no-new-privileges:true"]:
         fail("changes the approved security options")
     if str(agent.get("privileged", False)).lower() == "true":
@@ -80,10 +85,10 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
                 "read_only": "ro" in options,
             }
         volumes.append(volume)
-    agent_text = json.dumps(agent)
-    if "/data" in agent_text:
+    volume_text = json.dumps(volumes).casefold()
+    if "/data" in volume_text:
         fail("mounts server data")
-    if "docker.sock" in agent_text:
+    if "docker.sock" in volume_text or "podman.sock" in volume_text:
         fail("mounts a container socket")
     if len(volumes) != 1:
         fail("must have exactly one private state volume")
@@ -94,8 +99,8 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
         fail("state path is not a named volume")
     if not state["source"].endswith("durpdeploy-agent-state"):
         fail("state volume uses the wrong source")
-    for forbidden in ("/data", "/sys/fs/cgroup", "durpdeploy_key", "docker.sock", "SYS_ADMIN", "SYS_CHROOT", "unconfined"):
-        if forbidden in agent_text:
+    for forbidden in ("/sys/fs/cgroup", "durpdeploy_key"):
+        if forbidden in volume_text:
             fail(f"contains forbidden {forbidden}")
 print("agent compose contract: PASS")
 PY

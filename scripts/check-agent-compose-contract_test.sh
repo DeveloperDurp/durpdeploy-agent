@@ -42,8 +42,21 @@ assert_rejected 'network_mode=host' 'compose.yml shares the host network'
 assert_rejected 'network_mode="host"' 'compose.yml shares the host network'
 assert_rejected 'read_only=false' 'compose.yml permits a writable image root'
 assert_rejected 'read_only="false"' 'compose.yml permits a writable image root'
+for capability in SYS_ADMIN sys_admin CAP_SYS_ADMIN cap_sys_admin; do
+	assert_rejected "cap_add=[\"$capability\"]" \
+		'compose.yml adds capabilities outside the identity switch set'
+done
 assert_rejected 'volumes=["/data:/data"]' 'compose.yml mounts server data'
 assert_rejected 'volumes=["/var/run/docker.sock:/var/run/docker.sock"]' \
 	'compose.yml mounts a container socket'
+assert_rejected 'volumes=["/run/podman/podman.sock:/run/podman/podman.sock"]' \
+	'compose.yml mounts a container socket'
+
+comment_fixture=$(mktemp -d)
+trap 'rm -rf "$comment_fixture"' EXIT
+cp "$repo_root/compose.yml" "$repo_root/compose.example.yml" "$comment_fixture/"
+printf '%s\n' '# cap_add: [sys_admin] /run/podman/podman.sock' \
+	>> "$comment_fixture/compose.yml"
+AGENT_COMPOSE_CONTRACT_ROOT="$comment_fixture" bash "$checker" >/dev/null
 
 printf '%s\n' 'agent compose contract negative test: PASS'
