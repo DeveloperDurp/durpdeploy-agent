@@ -42,10 +42,17 @@ assert_rejected 'network_mode=host' 'compose.yml shares the host network'
 assert_rejected 'network_mode="host"' 'compose.yml shares the host network'
 assert_rejected 'read_only=false' 'compose.yml permits a writable image root'
 assert_rejected 'read_only="false"' 'compose.yml permits a writable image root'
-for capability in SYS_ADMIN sys_admin CAP_SYS_ADMIN cap_sys_admin; do
+for capability in SETUID setuid CAP_SETUID cap_setuid \
+	SETGID setgid CAP_SETGID cap_setgid \
+	SETPCAP setpcap CAP_SETPCAP cap_setpcap \
+	SYS_ADMIN sys_admin CAP_SYS_ADMIN cap_sys_admin \
+	NET_ADMIN net_admin CAP_NET_ADMIN cap_net_admin; do
 	assert_rejected "cap_add=[\"$capability\"]" \
-		'compose.yml adds capabilities outside the identity switch set'
+		'compose.yml grants a Linux capability'
 done
+assert_rejected 'cgroupns=host' 'compose.yml shares the host cgroup namespace'
+assert_rejected 'volumes=["/sys/fs/cgroup:/sys/fs/cgroup:rw"]' \
+	'compose.yml contains forbidden /sys/fs/cgroup'
 assert_rejected 'volumes=["/data:/data"]' 'compose.yml mounts server data'
 assert_rejected 'volumes=["/var/run/docker.sock:/var/run/docker.sock"]' \
 	'compose.yml mounts a container socket'

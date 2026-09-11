@@ -57,9 +57,10 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
     cap_drop = [str(value).upper() for value in agent["cap_drop"]]
     if cap_drop != ["ALL"]:
         fail("does not drop all capabilities")
-    cap_add = [str(value).upper().removeprefix("CAP_") for value in agent["cap_add"]]
-    if cap_add != ["SETUID", "SETGID", "SETPCAP"]:
-        fail("adds capabilities outside the identity switch set")
+    if agent.get("cap_add"):
+        fail("grants a Linux capability")
+    if str(agent.get("user", "")) != "10001:10001":
+        fail("does not use the preselected service identity")
     if agent.get("read_only") is not True:
         fail("permits a writable image root")
     security_opt = [
@@ -74,6 +75,8 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
         fail("shares the host PID namespace")
     if str(agent.get("network_mode", "")).lower() == "host":
         fail("shares the host network")
+    if str(agent.get("cgroupns", "")).lower() == "host":
+        fail("shares the host cgroup namespace")
     volumes = []
     for volume in agent["volumes"]:
         if isinstance(volume, str):
@@ -90,6 +93,9 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
         fail("mounts server data")
     if "docker.sock" in volume_text or "podman.sock" in volume_text:
         fail("mounts a container socket")
+    for forbidden in ("/sys/fs/cgroup", "durpdeploy_key"):
+        if forbidden in volume_text:
+            fail(f"contains forbidden {forbidden}")
     if len(volumes) != 1:
         fail("must have exactly one private state volume")
     state = volumes[0]
@@ -99,8 +105,5 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
         fail("state path is not a named volume")
     if not state["source"].endswith("durpdeploy-agent-state"):
         fail("state volume uses the wrong source")
-    for forbidden in ("/sys/fs/cgroup", "durpdeploy_key"):
-        if forbidden in volume_text:
-            fail(f"contains forbidden {forbidden}")
 print("agent compose contract: PASS")
 PY
