@@ -33,5 +33,9 @@ require_text docs/agents.md 'Read-only storage does not prevent' \
 	'read-only boundary limitations are not documented'
 require_text docs/agents.md 'host cgroup mount' \
 	'host cgroup mount exclusion is not documented'
+require_text README.md 'share one UID' \
+	'shared service identity tradeoff is not documented'
+require_text docs/agents.md 'Bash can' \
+	'agent state exposure is not documented'
 
 echo 'agent documentation contract: PASS'
