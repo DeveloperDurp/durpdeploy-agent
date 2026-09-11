@@ -37,17 +37,6 @@ assert_rejected() {
 assert_rejected executor/executor.go '// chroot' 'executor source invokes chroot'
 assert_rejected Dockerfile 'SYS_CHROOT' 'Dockerfile requires SYS_CHROOT'
 assert_rejected Dockerfile 'SYS_ADMIN' 'Dockerfile requires SYS_ADMIN'
-assert_rejected compose.yml 'privileged: true' 'compose.yml enables privileged mode'
-assert_rejected compose.yml 'pid: host' 'compose.yml shares the host PID namespace'
-assert_rejected compose.yml 'network_mode: host' 'compose.yml shares the host network'
-assert_rejected compose.yml 'network_mode: "host"' \
-	'compose.yml shares the host network'
-assert_rejected compose.yml 'read_only: false' 'compose.yml permits a writable image root'
-assert_rejected compose.yml 'read_only: "false"' \
-	'compose.yml permits a writable image root'
-assert_rejected compose.yml '/data:/data' 'compose.yml mounts server data'
-assert_rejected compose.yml '/var/run/docker.sock:/var/run/docker.sock' \
-	'compose.yml mounts a container socket'
 
 root=$(mktemp -d)
 trap 'rm -rf "$root"' EXIT

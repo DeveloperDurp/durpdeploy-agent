@@ -47,13 +47,28 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
     document = json.loads(path.read_text()) if path.suffix == ".json" else yaml.safe_load(path.read_text())
     services = document["services"]
     agent = services["agent"]
-    assert agent["image"] == "ghcr.io/developerdurp/durpdeploy-agent:latest"
-    assert agent["cap_drop"] == ["ALL"]
-    assert agent["cap_add"] == ["SETUID", "SETGID", "SETPCAP"]
-    assert agent["read_only"] is True
+    name = path.parent.name + ".yml"
+
+    def fail(message):
+        raise SystemExit(f"agent compose contract: {name} {message}")
+
+    if agent["image"] != "ghcr.io/developerdurp/durpdeploy-agent:latest":
+        fail("uses an unexpected image")
+    if agent["cap_drop"] != ["ALL"]:
+        fail("does not drop all capabilities")
+    if agent["cap_add"] != ["SETUID", "SETGID", "SETPCAP"]:
+        fail("adds capabilities outside the identity switch set")
+    if agent.get("read_only") is not True:
+        fail("permits a writable image root")
     security_opt = [option.replace("apparmor=", "apparmor:", 1) for option in agent["security_opt"]]
-    assert security_opt == ["no-new-privileges:true"]
-    assert "network_mode" not in agent
+    if security_opt != ["no-new-privileges:true"]:
+        fail("changes the approved security options")
+    if str(agent.get("privileged", False)).lower() == "true":
+        fail("enables privileged mode")
+    if str(agent.get("pid", "")).lower() == "host":
+        fail("shares the host PID namespace")
+    if str(agent.get("network_mode", "")).lower() == "host":
+        fail("shares the host network")
     volumes = []
     for volume in agent["volumes"]:
         if isinstance(volume, str):
@@ -65,13 +80,22 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
                 "read_only": "ro" in options,
             }
         volumes.append(volume)
-    assert len(volumes) == 1
-    state = volumes[0]
-    assert state["target"] == "/var/lib/durpdeploy-agent"
-    assert state["type"] == "volume"
-    assert state["source"].endswith("durpdeploy-agent-state")
     agent_text = json.dumps(agent)
-    for forbidden in ("/data", "/sys/fs/cgroup", "durpdeploy_key", "docker.sock", "privileged", "host", "SYS_ADMIN", "SYS_CHROOT", "unconfined"):
-        assert forbidden not in agent_text, f"{path}: found forbidden {forbidden}"
+    if "/data" in agent_text:
+        fail("mounts server data")
+    if "docker.sock" in agent_text:
+        fail("mounts a container socket")
+    if len(volumes) != 1:
+        fail("must have exactly one private state volume")
+    state = volumes[0]
+    if state["target"] != "/var/lib/durpdeploy-agent":
+        fail("state volume uses the wrong target")
+    if state["type"] != "volume":
+        fail("state path is not a named volume")
+    if not state["source"].endswith("durpdeploy-agent-state"):
+        fail("state volume uses the wrong source")
+    for forbidden in ("/data", "/sys/fs/cgroup", "durpdeploy_key", "docker.sock", "SYS_ADMIN", "SYS_CHROOT", "unconfined"):
+        if forbidden in agent_text:
+            fail(f"contains forbidden {forbidden}")
 print("agent compose contract: PASS")
 PY
