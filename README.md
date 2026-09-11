@@ -3,7 +3,7 @@
 The DurpDeploy Agent executes deployment steps on a remote Linux host. It pairs
 with a DurpDeploy control plane over HTTPS, pins the server identity, decrypts
 authenticated deployment payloads, streams redacted logs, and runs Bash steps
-inside the DurpDeploy Linux sandbox.
+as a dedicated runner identity inside a hardened service or container boundary.
 
 ## Build
 
@@ -16,9 +16,10 @@ make check
 
 ## Run
 
-Create the service account and state directory described in
-[`docs/agents.md`](docs/agents.md), then start `durpdeploy-agent`. On first start
-the process prints its pairing code and certificate fingerprint.
+Create the service and runner accounts described in
+[`docs/agents.md`](docs/agents.md), then start `durpdeploy-agent` through the
+provided systemd or container contract. On first start the process prints its
+pairing code and certificate fingerprint.
 
 Configuration remains compatible with existing installations:
 

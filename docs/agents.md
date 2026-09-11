@@ -17,6 +17,33 @@ agent identity certificate and key, paired server identity state, and a
 temporary hash-only current-claim marker. Keep that directory private and
 back it up only if preserving the enrolled identity is intentional.
 
+## Execution boundary and script responsibility
+
+DurpDeploy does not inspect or guarantee the safety of deployment scripts. The
+operator is responsible for each script, the secrets and files intentionally
+made available to it, its network access, and every effect it can cause within
+the service or container boundary. Read-only storage does not prevent a script
+from reading visible files or exfiltrating supplied secrets.
+
+Supported execution does not use `chroot`. Bash runs as the separate
+`durpdeploy-runner` identity with all capability sets cleared and `NoNewPrivs`
+enabled. The surrounding service supplies the filesystem and cgroup boundary:
+
+* Containers use a read-only image root, a private state volume, a private
+  `/tmp`, default seccomp and AppArmor confinement, and CPU, memory, and process
+  limits. They mount no host filesystem, control-plane state, container socket,
+  or host cgroup tree.
+* systemd uses `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp=true`,
+  private mounts, a single writable state path, and CPU, memory, and task limits.
+
+The agent fails execution unless the service boundary marker, runner account,
+and capability-clearing tool are available. A direct foreground run is for the
+initial pairing ceremony only; restart it through the supplied systemd or
+container definition before assigning deployments. Server and agent containers
+may share a host or dedicated bridge network when identities, process
+namespaces, and volumes remain separate. A remote agent host remains the
+preferred production placement.
+
 Agents initiate most runtime connections, but pairing still needs a temporary
 unpaired agent callback listener: after code and fingerprint confirmation, the
 server performs a one-shot `server-init` callback to that temporary listener.
@@ -153,7 +180,7 @@ stores no server secret or deployment payload at rest. A current claim marker
 contains only the deployment ID and a SHA-256 hash of the claim token and is
 removed after the claim completes.
 
-## Direct binary installation
+## Binary installation
 
 Build the agent binary from the repository. This builds only `cmd/agent` and
 does not create or open a database:
@@ -173,8 +200,8 @@ sudo install -d -o durpdeploy-agent -g durpdeploy-agent -m 0700 \
 sudo install -m 0600 /tmp/durpdeploy-agent.env /etc/durpdeploy-agent.env
 ```
 
-For first pairing, a foreground run can use a protected environment file owned
-by the agent user:
+For first pairing only, a foreground run can use a protected environment file
+owned by the agent user:
 
 ```bash
 sudo install -o durpdeploy-agent -g durpdeploy-agent -m 0600 \
@@ -189,10 +216,9 @@ service process receives the values without putting them in shell history.
 
 ## Docker or Podman Compose
 
-The optional `agent` profile is a co-located demonstration and validation
-path. It is not a server sidecar and is not a production placement
-recommendation. Production agents should run remotely on the host where the
-deployment commands belong.
+The Compose service is a co-located compatibility and validation path. It is
+not a server sidecar or a production placement recommendation. Production
+agents should run remotely on the host where the deployment commands belong.
 
 Create `compose.agent.env` with the same local variables, use mode `0600`, and
 do not include a credential-shaped literal:
@@ -220,9 +246,11 @@ podman compose --profile agent ps agent
 podman compose --profile agent logs -f agent
 ```
 
-The profile mounts one volume at `/var/lib/durpdeploy-agent`, has no `/data`
-mount, server secret, Docker socket, host network, or inbound listener. That
-volume is agent identity state, not SQLite and not a server backup.
+The service mounts one private volume at `/var/lib/durpdeploy-agent`, has a
+private `/tmp`, and has no `/data` mount, server secret, Docker socket, host
+network, host cgroup mount, or persistent inbound listener. That volume is
+agent identity state, not SQLite and not a server backup. Its root filesystem
+is read-only, and Compose applies CPU, memory, and process limits.
 
 ## systemd installation and operations
 
@@ -237,9 +265,11 @@ sudo systemctl enable --now durpdeploy-agent
 sudo systemctl status durpdeploy-agent --no-pager
 ```
 
-The unit runs as `durpdeploy-agent`, sets the state directory, uses
+The unit runs as `durpdeploy-agent`, executes Bash as `durpdeploy-runner`, sets the state directory, uses
 `/etc/durpdeploy-agent.env`, applies a private `UMask=0077`, and permits writes
-only to the agent state directory. Keep both `/etc/durpdeploy-agent.env` and
+only to the agent state directory. It also applies `NoNewPrivileges`, private
+mounts and `/tmp`, and CPU, memory, and task limits. Keep both
+`/etc/durpdeploy-agent.env` and
 the state directory inaccessible to other users:
 
 ```bash

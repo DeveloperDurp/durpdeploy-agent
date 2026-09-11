@@ -25,5 +25,13 @@ require_text docs/agent-protocol.md 'does not fall back to local execution' \
 	'remote dispatch fallback is not explicit'
 require_text docs/agent-protocol.md 'server-init' \
 	'server-init pairing channel is missing'
+require_text docs/agents.md 'does not use `chroot`' \
+	'chroot-free execution boundary is not documented'
+require_text docs/agents.md 'operator is responsible' \
+	'operator script responsibility is not documented'
+require_text docs/agents.md 'Read-only storage does not prevent' \
+	'read-only boundary limitations are not documented'
+require_text docs/agents.md 'host cgroup mount' \
+	'host cgroup mount exclusion is not documented'
 
 echo 'agent documentation contract: PASS'
