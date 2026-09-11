@@ -6,8 +6,8 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,13 +15,7 @@ import (
 
 func newExecutorForTest(t *testing.T) *Executor {
 	t.Helper()
-	return &Executor{sandbox: &Sandbox{
-		uid:                 uint32(os.Getuid()),
-		gid:                 uint32(os.Getgid()),
-		enabled:             true,
-		applyCredentialFn:   func(*exec.Cmd) {},
-		clearCapabilitiesFn: func(*exec.Cmd) error { return nil },
-	}}
+	return &Executor{}
 }
 
 func TestExecutor_Succeeds_when_script_exits_zero(t *testing.T) {
@@ -66,6 +60,16 @@ func TestExecutor_CommandDoesNotUseChroot(t *testing.T) {
 	}
 	if cmd.Dir != tmpDir {
 		t.Fatalf("command directory = %q, want %q", cmd.Dir, tmpDir)
+	}
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid {
+		t.Fatal("command lacks its own process group")
+	}
+	if cmd.SysProcAttr.Credential != nil {
+		t.Fatalf("command switches credentials: %+v", cmd.SysProcAttr.Credential)
+	}
+	wantArgs := []string{"bash", scriptPath}
+	if !slices.Equal(cmd.Args, wantArgs) {
+		t.Fatalf("command args = %q, want %q", cmd.Args, wantArgs)
 	}
 }
 
@@ -221,31 +225,6 @@ func TestExecutor_Fails_when_log_persistence_fails(t *testing.T) {
 	// Then
 	if !errors.Is(err, persistenceErr) {
 		t.Fatalf("execute error = %v, want persistence error", err)
-	}
-}
-
-func TestExecutor_FailsBeforeStarting_when_capability_drop_fails(t *testing.T) {
-	// Given
-	capabilityErr := errors.New("setpriv missing")
-	marker := filepath.Join(t.TempDir(), "script-ran")
-	executor := &Executor{sandbox: &Sandbox{
-		enabled:             true,
-		clearCapabilitiesFn: func(*exec.Cmd) error { return capabilityErr },
-	}}
-	job := NewJob(JobConfig{
-		Name:       "capability failure",
-		ScriptBody: "touch " + marker,
-	})
-
-	// When
-	err := executor.Execute(context.Background(), job, Callbacks{})
-
-	// Then
-	if !errors.Is(err, capabilityErr) {
-		t.Fatalf("execute error = %v, want capability error", err)
-	}
-	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("script marker error = %v, want not exist", statErr)
 	}
 }
 

@@ -12,7 +12,10 @@ import (
 	"time"
 )
 
-const defaultStepTimeout = 5 * time.Minute
+const (
+	defaultStepTimeout = 5 * time.Minute
+	serviceUsername    = "durpdeploy-agent"
+)
 
 var ErrCancelled = errors.New("step execution cancelled")
 
@@ -20,8 +23,8 @@ func baseStepEnv() []string {
 	environment := []string{
 		"PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin",
 		"HOME=/nonexistent",
-		"USER=" + runnerUsername,
-		"LOGNAME=" + runnerUsername,
+		"USER=" + serviceUsername,
+		"LOGNAME=" + serviceUsername,
 		"TERM=xterm",
 	}
 	if lang := os.Getenv("LANG"); lang != "" {
@@ -95,15 +98,13 @@ func NewCallbacks(config CallbacksConfig) Callbacks {
 
 // Executor executes bash jobs with the local sandbox and process isolation.
 type Executor struct {
-	sandbox       *Sandbox
 	sandboxErr    error
 	deadlineGrace func()
 	killGroup     func(int)
 }
 
 func NewExecutor() *Executor {
-	sandbox, err := newSandbox()
-	return &Executor{sandbox: sandbox, sandboxErr: err}
+	return &Executor{sandboxErr: validateExecutionBoundary()}
 }
 
 func (e *Executor) Execute(
@@ -182,14 +183,6 @@ func (e *Executor) runAttempt(
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
 	}
 	cmd.WaitDelay = 15 * time.Second
-	setPgid(cmd)
-	e.sandbox.applyCredential(cmd)
-	if err := e.sandbox.clearCapabilities(cmd); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmpDir, 0711); err != nil {
-		return err
-	}
 
 	var output bytes.Buffer
 	cmd.Stdout = io.MultiWriter(&output, writer)
@@ -256,6 +249,7 @@ func (e *Executor) command(
 ) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "bash", scriptPath)
 	cmd.Dir = tmpDir
+	setPgid(cmd)
 	return cmd
 }
 
