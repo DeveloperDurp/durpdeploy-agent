@@ -1,4 +1,4 @@
-.PHONY: build test e2e container container-contract compose-contract systemd-contract documentation-contract check agent-run
+.PHONY: build test e2e container container-contract container-contract-test compose-contract systemd-contract documentation-contract check agent-run
 
 BINARY_NAME := durpdeploy-agent
 IMAGE ?= durpdeploy-agent:local
@@ -39,6 +39,9 @@ agent-run: container
 container-contract:
 	AGENT_CONTAINER_IMAGE=$(IMAGE) bash ./scripts/check-agent-container-contract.sh
 
+container-contract-test:
+	bash ./scripts/check-agent-container-contract_test.sh
+
 compose-contract:
 	bash ./scripts/check-agent-compose-contract.sh
 
@@ -48,4 +51,4 @@ systemd-contract:
 documentation-contract:
 	bash ./scripts/check-agent-documentation-contract.sh
 
-check: test e2e compose-contract systemd-contract documentation-contract
+check: test e2e container-contract-test compose-contract systemd-contract documentation-contract

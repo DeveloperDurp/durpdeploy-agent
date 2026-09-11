@@ -29,10 +29,20 @@ forbid_text() {
 	fi
 }
 
+forbid_pattern() {
+	local file=$1 pattern=$2 description=$3
+	if grep -Eq -- "$pattern" "$root/$file"; then
+		echo "agent container contract: $description" >&2
+		exit 1
+	fi
+}
+
 require_file Dockerfile
 require_file Makefile
 require_file bootstrap/listener.go
 require_file bootstrap/commit.go
+require_file executor/executor.go
+require_file executor/sandbox_linux.go
 require_text Dockerfile 'USER root' \
 	'agent image must bootstrap the identity-switching capabilities as root'
 require_text Dockerfile 'agent-entrypoint.sh' \
@@ -47,6 +57,8 @@ require_text Dockerfile 'VOLUME ["/var/lib/durpdeploy-agent", "/tmp"]' \
 	'agent image must declare writable state and temporary volumes'
 require_text Makefile 'build:' 'Make must build the agent binary'
 require_text Makefile 'container:' 'Make must build the agent image'
+require_text Makefile '--read-only' \
+	'agent-run must use a read-only image root'
 require_text bootstrap/listener.go \
 	'mux.HandleFunc(agentproto.ServerInitPath, listener.serverInit)' \
 	'agent bootstrap must expose only the server-init pairing route'
@@ -60,6 +72,29 @@ for file in Dockerfile agent-entrypoint.sh Makefile compose.yml \
 	forbid_text "$file" 'SYS_CHROOT' "$file requires SYS_CHROOT"
 	forbid_text "$file" 'apparmor=unconfined' \
 		"$file disables the default AppArmor boundary"
+done
+if grep -Eqi 'chroot|syscall\.Mount|\.Chroot' \
+	"$root/executor/executor.go" "$root/executor/sandbox_linux.go"; then
+	echo 'agent container contract: executor source invokes chroot' >&2
+	exit 1
+fi
+for file in compose.yml compose.example.yml; do
+	require_text "$file" 'read_only: true' \
+		"$file must use a read-only image root"
+	require_text "$file" 'cap_drop: [ALL]' \
+		"$file must drop all capabilities by default"
+	require_text "$file" 'no-new-privileges:true' \
+		"$file must enable no-new-privileges"
+	forbid_text "$file" 'privileged: true' "$file enables privileged mode"
+	forbid_pattern "$file" "pid:[[:space:]]*['\"]?host['\"]?" \
+		"$file shares the host PID namespace"
+	forbid_pattern "$file" "network_mode:[[:space:]]*['\"]?host['\"]?" \
+		"$file shares the host network"
+	forbid_pattern "$file" "read_only:[[:space:]]*['\"]?false['\"]?" \
+		"$file permits a writable image root"
+	forbid_text "$file" '/data:/data' "$file mounts server data"
+	forbid_text "$file" '/var/run/docker.sock' \
+		"$file mounts a container socket"
 done
 forbid_text compose.yml '/sys/fs/cgroup' \
 	'agent compose mounts the host cgroup filesystem'
