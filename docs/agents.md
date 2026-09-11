@@ -25,9 +25,10 @@ made available to it, its network access, and every effect it can cause within
 the service or container boundary. Read-only storage does not prevent a script
 from reading visible files or exfiltrating supplied secrets.
 
-Supported execution does not use `chroot`. Bash runs as the separate
-`durpdeploy-runner` identity with all capability sets cleared and `NoNewPrivs`
-enabled. The surrounding service supplies the filesystem and cgroup boundary:
+Supported execution does not use `chroot`. Bash and the agent share the
+preselected unprivileged `durpdeploy-agent` identity with all capability sets
+empty and `NoNewPrivs` enabled. The surrounding service supplies the filesystem
+and cgroup boundary:
 
 * Containers use a read-only image root, a private state volume, a private
   `/tmp`, default seccomp and AppArmor confinement, and CPU, memory, and process
@@ -36,13 +37,20 @@ enabled. The surrounding service supplies the filesystem and cgroup boundary:
 * systemd uses `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp=true`,
   private mounts, a single writable state path, and CPU, memory, and task limits.
 
-The agent fails execution unless the service boundary marker, runner account,
-and capability-clearing tool are available. A direct foreground run is for the
+The agent fails execution unless the service boundary marker is available. A
+direct foreground run is for the
 initial pairing ceremony only; restart it through the supplied systemd or
 container definition before assigning deployments. Server and agent containers
 may share a host or dedicated bridge network when identities, process
 namespaces, and volumes remain separate. A remote agent host remains the
 preferred production placement.
+
+An unprivileged agent cannot switch to a separate runner UID without
+`SETUID`/`SETGID`, and those capabilities are intentionally absent. Bash can
+therefore read or change the private agent state volume, including the paired
+identity. Use one agent boundary per trusted script domain and re-pair after any
+suspected state change. The separate host or container still keeps
+control-plane state and arbitrary host data out of reach.
 
 Agents initiate most runtime connections, but pairing still needs a temporary
 unpaired agent callback listener: after code and fingerprint confirmation, the
@@ -265,7 +273,7 @@ sudo systemctl enable --now durpdeploy-agent
 sudo systemctl status durpdeploy-agent --no-pager
 ```
 
-The unit runs as `durpdeploy-agent`, executes Bash as `durpdeploy-runner`, sets the state directory, uses
+The unit runs the agent and Bash as `durpdeploy-agent`, sets the state directory, uses
 `/etc/durpdeploy-agent.env`, applies a private `UMask=0077`, and permits writes
 only to the agent state directory. It also applies `NoNewPrivileges`, private
 mounts and `/tmp`, and CPU, memory, and task limits. Keep both
