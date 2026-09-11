@@ -4,7 +4,6 @@ package executor
 
 import (
 	"errors"
-	"os"
 	"os/exec"
 	"os/user"
 	"slices"
@@ -34,6 +33,7 @@ func TestSandbox_AppliesRunnerUidGid(t *testing.T) {
 
 func TestSandbox_FailsClosed_WhenRunnerMissing(t *testing.T) {
 	// Given
+	t.Setenv("DURPDEPLOY_AGENT_EXECUTION_BOUNDARY", "service")
 	lookupRunnerUser = func(string) (*user.User, error) {
 		return nil, errors.New("runner user missing")
 	}
@@ -48,6 +48,23 @@ func TestSandbox_FailsClosed_WhenRunnerMissing(t *testing.T) {
 	}
 }
 
+func TestSandbox_FailsClosed_WhenServiceBoundaryMissing(t *testing.T) {
+	// Given
+	t.Setenv("DURPDEPLOY_AGENT_EXECUTION_BOUNDARY", "")
+	lookupRunnerUser = func(string) (*user.User, error) {
+		return &user.User{Uid: "10002", Gid: "10002"}, nil
+	}
+	t.Cleanup(func() { lookupRunnerUser = user.Lookup })
+
+	// When
+	_, err := newSandbox()
+
+	// Then
+	if err == nil {
+		t.Fatal("new sandbox succeeded without service boundary")
+	}
+}
+
 func TestSandbox_FailsClosed_WhenCapabilityDropFails(t *testing.T) {
 	// Given
 	lookupSetpriv = func(string) (string, error) {
@@ -58,7 +75,7 @@ func TestSandbox_FailsClosed_WhenCapabilityDropFails(t *testing.T) {
 	cmd := exec.Command("bash", "/script.sh")
 
 	// When
-	err := sandbox.clearCapabilities(cmd, false)
+	err := sandbox.clearCapabilities(cmd)
 
 	// Then
 	if err == nil {
@@ -66,35 +83,10 @@ func TestSandbox_FailsClosed_WhenCapabilityDropFails(t *testing.T) {
 	}
 }
 
-func TestSandbox_ConfiguresCgroupFD_BeforeFork(t *testing.T) {
-	// Given
-	dir, err := os.Open(t.TempDir())
-	if err != nil {
-		t.Fatalf("open cgroup fixture: %v", err)
-	}
-	t.Cleanup(func() { _ = dir.Close() })
-	cmd := exec.Command("bash", "/script.sh")
-	sandbox := &Sandbox{enabled: true}
-
-	// When
-	err = sandbox.configureCgroup(cmd, &cgroup{path: dir.Name(), dir: dir})
-
-	// Then
-	if err != nil {
-		t.Fatalf("configure cgroup: %v", err)
-	}
-	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.UseCgroupFD {
-		t.Fatal("UseCgroupFD = false, want atomic cgroup placement")
-	}
-	if cmd.SysProcAttr.CgroupFD != int(dir.Fd()) {
-		t.Fatalf("CgroupFD = %d, want %d", cmd.SysProcAttr.CgroupFD, dir.Fd())
-	}
-}
-
 func TestClearCapabilitiesWrapsStepWithSetpriv(t *testing.T) {
 	cmd := exec.Command("bash", "/script.sh")
 	sandbox := &Sandbox{enabled: true}
-	if err := sandbox.clearCapabilities(cmd, false); err != nil {
+	if err := sandbox.clearCapabilities(cmd); err != nil {
 		t.Fatal(err)
 	}
 

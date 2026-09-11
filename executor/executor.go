@@ -176,12 +176,7 @@ func (e *Executor) runAttempt(
 		return err
 	}
 
-	chrooted, err := e.sandbox.setupChroot(tmpDir)
-	if err != nil {
-		return fmt.Errorf("setup runner sandbox: %w", err)
-	}
-	defer e.sandbox.teardownChroot(tmpDir)
-	cmd := e.command(stepCtx, chrooted, tmpDir, scriptPath)
+	cmd := e.command(stepCtx, tmpDir, scriptPath)
 	cmd.Env = baseStepEnv()
 	for key, value := range job.environment {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
@@ -189,28 +184,13 @@ func (e *Executor) runAttempt(
 	cmd.WaitDelay = 15 * time.Second
 	setPgid(cmd)
 	e.sandbox.applyCredential(cmd)
-	if err := e.sandbox.clearCapabilities(cmd, chrooted); err != nil {
+	if err := e.sandbox.clearCapabilities(cmd); err != nil {
 		return err
 	}
 	if err := os.Chmod(tmpDir, 0711); err != nil {
 		return err
 	}
 
-	group, err := e.sandbox.createCgroup(job.deploymentID)
-	if err != nil {
-		return fmt.Errorf("setup runner cgroup: %w", err)
-	}
-	defer func() {
-		if cleanupErr := e.sandbox.removeCgroup(group); cleanupErr != nil {
-			err = errors.Join(
-				err,
-				fmt.Errorf("cleanup runner cgroup: %w", cleanupErr),
-			)
-		}
-	}()
-	if err := e.sandbox.configureCgroup(cmd, group); err != nil {
-		return fmt.Errorf("configure runner cgroup: %w", err)
-	}
 	var output bytes.Buffer
 	cmd.Stdout = io.MultiWriter(&output, writer)
 	cmd.Stderr = io.MultiWriter(&output, writer)
@@ -272,17 +252,10 @@ func (e *Executor) runAttempt(
 
 func (e *Executor) command(
 	ctx context.Context,
-	chrooted bool,
 	tmpDir, scriptPath string,
 ) *exec.Cmd {
-	if !chrooted {
-		cmd := exec.CommandContext(ctx, "bash", scriptPath)
-		cmd.Dir = tmpDir
-		return cmd
-	}
-	cmd := exec.CommandContext(ctx, "/bin/bash", "/script.sh")
-	cmd.Dir = "/"
-	e.sandbox.applyChroot(cmd, tmpDir)
+	cmd := exec.CommandContext(ctx, "bash", scriptPath)
+	cmd.Dir = tmpDir
 	return cmd
 }
 
