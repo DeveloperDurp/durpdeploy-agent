@@ -5,7 +5,6 @@ unit=${AGENT_SYSTEMD_UNIT:-systemd/durpdeploy-agent.service}
 required=(
 	'User=durpdeploy-agent'
 	'Group=durpdeploy-agent'
-	'#   sudo useradd --system --home-dir /nonexistent --shell /usr/sbin/nologin durpdeploy-runner'
 	'EnvironmentFile=/etc/durpdeploy-agent.env'
 	'Environment=DURPDEPLOY_AGENT_EXECUTION_BOUNDARY=service'
 	'ExecStart=/usr/local/bin/durpdeploy-agent'
@@ -22,8 +21,8 @@ required=(
 	'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6'
 	'MemoryMax=512M'
 	'TasksMax=128'
-	'CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_SETPCAP'
-	'AmbientCapabilities=CAP_SETUID CAP_SETGID CAP_SETPCAP'
+	'CapabilityBoundingSet='
+	'AmbientCapabilities='
 	'CPUQuota=100%'
 )
 for value in "${required[@]}"; do
@@ -50,15 +49,20 @@ for raw_line in pathlib.Path(sys.argv[1]).read_text().splitlines():
         continue
     key = key.strip().casefold()
     value = value.strip().casefold()
-    if key in {"ambientcapabilities", "capabilityboundingset"}:
-        if "cap_sys_admin" in value:
-            raise SystemExit("agent systemd contract: forbidden CAP_SYS_ADMIN")
-        if "cap_sys_chroot" in value:
-            raise SystemExit("agent systemd contract: forbidden CAP_SYS_CHROOT")
+    if key in {"ambientcapabilities", "capabilityboundingset"} and value:
+        raise SystemExit("agent systemd contract: forbidden capability grant")
     if key == "privatenetwork" and value == "true":
         raise SystemExit("agent systemd contract: forbidden PrivateNetwork=true")
     if key == "delegate" and value == "true":
         raise SystemExit("agent systemd contract: forbidden Delegate=true")
+    if key == "protectcontrolgroups" and value != "true":
+        raise SystemExit(
+            "agent systemd contract: forbidden ProtectControlGroups=false"
+        )
+    if key == "restrictnamespaces" and value != "true":
+        raise SystemExit(
+            "agent systemd contract: forbidden RestrictNamespaces=false"
+        )
     if key == "bindreadonlypaths":
         if "/var/lib/durpdeploy" in value:
             raise SystemExit(
