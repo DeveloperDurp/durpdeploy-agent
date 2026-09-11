@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+repo_root=$(cd "$(dirname "$0")/.." && pwd)
+if ! grep -Fq -- '--read-only' "$repo_root/Makefile"; then
+	echo 'agent container contract negative test: agent-run root is writable' >&2
+	exit 1
+fi
+
 root=$(mktemp -d)
 trap 'rm -rf "$root"' EXIT
 mkdir -p "$root/internal/agentbootstrap"

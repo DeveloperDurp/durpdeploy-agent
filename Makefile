@@ -20,6 +20,7 @@ container:
 
 agent-run: container
 	podman run --rm \
+		--read-only \
 		--publish $(AGENT_PORT):10943 \
 		--volume $(AGENT_STATE_VOLUME):/var/lib/durpdeploy-agent \
 		--tmpfs /tmp:size=64m,mode=1777 \
