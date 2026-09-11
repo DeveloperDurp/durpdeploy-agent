@@ -7,6 +7,7 @@ required=(
 	'Group=durpdeploy-agent'
 	'#   sudo useradd --system --home-dir /nonexistent --shell /usr/sbin/nologin durpdeploy-runner'
 	'EnvironmentFile=/etc/durpdeploy-agent.env'
+	'Environment=DURPDEPLOY_AGENT_EXECUTION_BOUNDARY=service'
 	'ExecStart=/usr/local/bin/durpdeploy-agent'
 	'StateDirectory=durpdeploy-agent'
 	'StateDirectoryMode=0700'
@@ -14,15 +15,16 @@ required=(
 	'ProtectSystem=strict'
 	'ProtectHome=true'
 	'PrivateTmp=true'
+	'PrivateMounts=true'
 	'PrivateDevices=true'
-	'ProtectControlGroups=false'
-	'Delegate=true'
+	'ProtectControlGroups=true'
 	'RestrictNamespaces=true'
 	'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6'
 	'MemoryMax=512M'
 	'TasksMax=128'
-	'CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_SETPCAP CAP_SYS_ADMIN CAP_SYS_CHROOT'
-	'AmbientCapabilities=CAP_SETUID CAP_SETGID CAP_SETPCAP CAP_SYS_ADMIN CAP_SYS_CHROOT'
+	'CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_SETPCAP'
+	'AmbientCapabilities=CAP_SETUID CAP_SETGID CAP_SETPCAP'
+	'CPUQuota=100%'
 )
 for value in "${required[@]}"; do
 	grep -Fqx "$value" "$unit" || {
@@ -36,6 +38,9 @@ forbidden=(
 	'BindReadOnlyPaths=/var/lib/durpdeploy'
 	'BindReadOnlyPaths=/data'
 	'docker.sock'
+	'CAP_SYS_ADMIN'
+	'CAP_SYS_CHROOT'
+	'Delegate=true'
 )
 for value in "${forbidden[@]}"; do
 	if grep -Fq "$value" "$unit"; then

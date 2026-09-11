@@ -20,6 +20,7 @@ User=durpdeploy-agent
 Group=durpdeploy-agent
 WorkingDirectory=/var/lib/durpdeploy-agent
 Environment=DURPDEPLOY_AGENT_STATE_DIR=/var/lib/durpdeploy-agent
+Environment=DURPDEPLOY_AGENT_EXECUTION_BOUNDARY=service
 EnvironmentFile=/etc/durpdeploy-agent.env
 ExecStart=/usr/local/bin/durpdeploy-agent
 Restart=on-failure
@@ -27,18 +28,18 @@ RestartSec=5s
 StateDirectory=durpdeploy-agent
 StateDirectoryMode=0700
 PrivateTmp=true
+PrivateMounts=true
 NoNewPrivileges=true
-# Mount/chroot happens before Go drops the child to durpdeploy-runner; setpriv
-# clears inherited and ambient capabilities before that child executes Bash.
-CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_SETPCAP CAP_SYS_ADMIN CAP_SYS_CHROOT
-AmbientCapabilities=CAP_SETUID CAP_SETGID CAP_SETPCAP CAP_SYS_ADMIN CAP_SYS_CHROOT
+# The agent switches only the Bash child to durpdeploy-runner; setpriv clears
+# inherited and ambient capabilities before that child executes.
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_SETPCAP
+AmbientCapabilities=CAP_SETUID CAP_SETGID CAP_SETPCAP
 ProtectSystem=strict
 ProtectHome=true
 PrivateDevices=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
-ProtectControlGroups=false
-Delegate=true
+ProtectControlGroups=true
 RestrictNamespaces=true
 RestrictSUIDSGID=true
 RestrictRealtime=true
@@ -50,6 +51,7 @@ UMask=0077
 LimitNOFILE=1024
 MemoryMax=512M
 TasksMax=128
+CPUQuota=100%
 
 [Install]
 WantedBy=multi-user.target
