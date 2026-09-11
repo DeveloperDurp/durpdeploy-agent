@@ -9,12 +9,10 @@ services:
       DURPDEPLOY_AGENT_STATE_DIR: /var/lib/durpdeploy-agent
     volumes:
       - durpdeploy-agent-state:/var/lib/durpdeploy-agent
-      - /sys/fs/cgroup/durpdeploy:/sys/fs/cgroup/durpdeploy:rw
     security_opt:
       - no-new-privileges:true
-      - apparmor:unconfined
     cap_drop: [ALL]
-    cap_add: [SETUID, SETGID, SETPCAP, SYS_ADMIN, SYS_CHROOT]
+    cap_add: [SETUID, SETGID, SETPCAP]
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777

@@ -49,10 +49,10 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
     agent = services["agent"]
     assert agent["image"] == "ghcr.io/developerdurp/durpdeploy-agent:latest"
     assert agent["cap_drop"] == ["ALL"]
-    assert agent["cap_add"] == ["SETUID", "SETGID", "SETPCAP", "SYS_ADMIN", "SYS_CHROOT"]
+    assert agent["cap_add"] == ["SETUID", "SETGID", "SETPCAP"]
     assert agent["read_only"] is True
     security_opt = [option.replace("apparmor=", "apparmor:", 1) for option in agent["security_opt"]]
-    assert security_opt == ["no-new-privileges:true", "apparmor:unconfined"]
+    assert security_opt == ["no-new-privileges:true"]
     assert "network_mode" not in agent
     volumes = []
     for volume in agent["volumes"]:
@@ -65,17 +65,13 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
                 "read_only": "ro" in options,
             }
         volumes.append(volume)
-    assert len(volumes) == 2
-    state, cgroup = volumes
+    assert len(volumes) == 1
+    state = volumes[0]
     assert state["target"] == "/var/lib/durpdeploy-agent"
     assert state["type"] == "volume"
     assert state["source"].endswith("durpdeploy-agent-state")
-    assert cgroup["source"] == "/sys/fs/cgroup/durpdeploy"
-    assert cgroup["target"] == "/sys/fs/cgroup/durpdeploy"
-    assert cgroup["type"] == "bind"
-    assert cgroup.get("read_only") is False
     agent_text = json.dumps(agent)
-    for forbidden in ("/data", "durpdeploy_key", "docker.sock", "privileged", "host"):
+    for forbidden in ("/data", "/sys/fs/cgroup", "durpdeploy_key", "docker.sock", "privileged", "host", "SYS_ADMIN", "SYS_CHROOT", "unconfined"):
         assert forbidden not in agent_text, f"{path}: found forbidden {forbidden}"
 print("agent compose contract: PASS")
 PY
