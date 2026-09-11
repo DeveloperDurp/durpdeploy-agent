@@ -6,13 +6,18 @@ if ! grep -Fq -- '--read-only' "$repo_root/Makefile"; then
 	echo 'agent container contract negative test: agent-run root is writable' >&2
 	exit 1
 fi
+if grep -RqiE 'setpriv|--cap-add|ambient-caps|inh-caps' \
+	"$repo_root/Dockerfile" "$repo_root/Makefile"; then
+	echo 'agent container contract negative test: capability bootstrap remains' >&2
+	exit 1
+fi
 
 assert_rejected() {
 	local target=$1 payload=$2 diagnostic=$3 fixture
 	fixture=$(mktemp -d)
 	mkdir -p "$fixture/bootstrap" "$fixture/executor"
 	cp "$repo_root/Dockerfile" "$repo_root/Makefile" \
-		"$repo_root/agent-entrypoint.sh" "$repo_root/compose.yml" \
+		"$repo_root/compose.yml" \
 		"$repo_root/compose.example.yml" "$fixture/"
 	cp "$repo_root/bootstrap/listener.go" "$repo_root/bootstrap/commit.go" \
 		"$fixture/bootstrap/"
@@ -34,9 +39,14 @@ assert_rejected() {
 	rm -rf "$fixture"
 }
 
-assert_rejected executor/executor.go '// chroot' 'executor source invokes chroot'
+assert_rejected executor/executor.go '// chroot' 'executor source changes privileges'
+assert_rejected executor/executor.go '// SysProcAttr.Credential' \
+	'executor source changes privileges'
+assert_rejected agent-entrypoint.sh 'setpriv' 'capability entrypoint remains'
 assert_rejected Dockerfile 'SYS_CHROOT' 'Dockerfile requires SYS_CHROOT'
+assert_rejected Dockerfile 'sys_chroot' 'Dockerfile requires SYS_CHROOT'
 assert_rejected Dockerfile 'SYS_ADMIN' 'Dockerfile requires SYS_ADMIN'
+assert_rejected Dockerfile 'sys_admin' 'Dockerfile requires SYS_ADMIN'
 
 root=$(mktemp -d)
 trap 'rm -rf "$root"' EXIT

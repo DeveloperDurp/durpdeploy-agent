@@ -21,9 +21,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags='-w -s' -trimpath \
 FROM alpine:3.20
 
 # hadolint ignore=DL3018
-RUN apk add --no-cache bash ca-certificates util-linux && \
+RUN apk add --no-cache bash ca-certificates && \
 	adduser -D -H -s /sbin/nologin -u 10001 durpdeploy-agent && \
-	adduser -D -H -s /sbin/nologin -u 10002 durpdeploy-runner && \
 	mkdir -p /var/lib/durpdeploy-agent /tmp && \
 	chown durpdeploy-agent:durpdeploy-agent /var/lib/durpdeploy-agent /tmp && \
 	chmod 0700 /var/lib/durpdeploy-agent
@@ -35,11 +34,7 @@ WORKDIR /var/lib/durpdeploy-agent
 VOLUME ["/var/lib/durpdeploy-agent", "/tmp"]
 
 COPY --from=builder /out/durpdeploy-agent /usr/local/bin/durpdeploy-agent
-COPY agent-entrypoint.sh /usr/local/bin/durpdeploy-agent-entrypoint
-RUN chmod 0755 /usr/local/bin/durpdeploy-agent /usr/local/bin/durpdeploy-agent-entrypoint
+RUN chmod 0755 /usr/local/bin/durpdeploy-agent
 
-# Root is required only until the entrypoint drops to durpdeploy-agent.
-# hadolint ignore=DL3002
-USER root
-ENTRYPOINT ["/usr/local/bin/durpdeploy-agent-entrypoint"]
-CMD ["/usr/local/bin/durpdeploy-agent"]
+USER 10001
+ENTRYPOINT ["/usr/local/bin/durpdeploy-agent"]

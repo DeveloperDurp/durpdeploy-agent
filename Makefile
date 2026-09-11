@@ -26,9 +26,6 @@ agent-run: container
 		--tmpfs /tmp:size=64m,mode=1777 \
 		--security-opt no-new-privileges=true \
 		--cap-drop all \
-		--cap-add SETUID \
-		--cap-add SETGID \
-		--cap-add SETPCAP \
 		--memory 512m \
 		--cpus 1.0 \
 		--pids-limit 128 \
