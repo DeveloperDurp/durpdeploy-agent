@@ -33,21 +33,47 @@ for value in "${required[@]}"; do
 	}
 done
 
-forbidden=(
-	'PrivateNetwork=true'
-	'BindReadOnlyPaths=/var/lib/durpdeploy'
-	'BindReadOnlyPaths=/data'
-	'docker.sock'
-	'CAP_SYS_ADMIN'
-	'CAP_SYS_CHROOT'
-	'Delegate=true'
-)
-for value in "${forbidden[@]}"; do
-	if grep -Fq "$value" "$unit"; then
-		echo "agent systemd contract: forbidden $value" >&2
-		exit 1
-	fi
-done
+python3 - "$unit" <<'PY'
+import pathlib
+import sys
+
+section = ""
+for raw_line in pathlib.Path(sys.argv[1]).read_text().splitlines():
+    line = raw_line.strip()
+    if line.startswith("[") and line.endswith("]"):
+        section = line[1:-1].casefold()
+        continue
+    if section != "service" or not line or line.startswith(("#", ";")):
+        continue
+    key, separator, value = line.partition("=")
+    if not separator:
+        continue
+    key = key.strip().casefold()
+    value = value.strip().casefold()
+    if key in {"ambientcapabilities", "capabilityboundingset"}:
+        if "cap_sys_admin" in value:
+            raise SystemExit("agent systemd contract: forbidden CAP_SYS_ADMIN")
+        if "cap_sys_chroot" in value:
+            raise SystemExit("agent systemd contract: forbidden CAP_SYS_CHROOT")
+    if key == "privatenetwork" and value == "true":
+        raise SystemExit("agent systemd contract: forbidden PrivateNetwork=true")
+    if key == "delegate" and value == "true":
+        raise SystemExit("agent systemd contract: forbidden Delegate=true")
+    if key == "bindreadonlypaths":
+        if "/var/lib/durpdeploy" in value:
+            raise SystemExit(
+                "agent systemd contract: forbidden "
+                "BindReadOnlyPaths=/var/lib/durpdeploy"
+            )
+        if "/data" in value:
+            raise SystemExit(
+                "agent systemd contract: forbidden BindReadOnlyPaths=/data"
+            )
+    if key in {"bindpaths", "bindreadonlypaths"}:
+        for socket in ("docker.sock", "podman.sock"):
+            if socket in value:
+                raise SystemExit(f"agent systemd contract: forbidden {socket}")
+PY
 
 if command -v systemd-analyze >/dev/null 2>&1; then
 	set +e
