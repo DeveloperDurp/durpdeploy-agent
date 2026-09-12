@@ -6,8 +6,8 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,24 +15,7 @@ import (
 
 func newExecutorForTest(t *testing.T) *Executor {
 	t.Helper()
-	previousBinds := chrootBinds
-	previousOptionalBinds := optionalChrootBinds
-	chrootBinds = nil
-	optionalChrootBinds = nil
-	t.Cleanup(func() {
-		chrootBinds = previousBinds
-		optionalChrootBinds = previousOptionalBinds
-	})
-	return &Executor{sandbox: &Sandbox{
-		uid:                 uint32(os.Getuid()),
-		gid:                 uint32(os.Getgid()),
-		enabled:             true,
-		applyCredentialFn:   func(*exec.Cmd) {},
-		clearCapabilitiesFn: func(*exec.Cmd, bool) error { return nil },
-		createCgroupFn:      func(int64) (*cgroup, error) { return &cgroup{}, nil },
-		configureCgroupFn:   func(*exec.Cmd, *cgroup) error { return nil },
-		removeCgroupFn:      func(*cgroup) error { return nil },
-	}}
+	return &Executor{boundaryValidated: true}
 }
 
 func TestExecutor_Succeeds_when_script_exits_zero(t *testing.T) {
@@ -59,6 +42,37 @@ func TestExecutor_Succeeds_when_script_exits_zero(t *testing.T) {
 	}
 	if got := strings.Join(logs, "\n"); got != "complete" {
 		t.Fatalf("logs = %q, want %q", got, "complete")
+	}
+}
+
+func TestExecutor_CommandDoesNotUseChroot(t *testing.T) {
+	// Given
+	executor := newExecutorForTest(t)
+	tmpDir := t.TempDir()
+	scriptPath := filepath.Join(tmpDir, "script.sh")
+
+	// When
+	cmd := executor.command(context.Background(), tmpDir, scriptPath)
+
+	// Then
+	if cmd.SysProcAttr != nil && cmd.SysProcAttr.Chroot != "" {
+		t.Fatalf("command chroot = %q, want empty", cmd.SysProcAttr.Chroot)
+	}
+	if cmd.Dir != tmpDir {
+		t.Fatalf("command directory = %q, want %q", cmd.Dir, tmpDir)
+	}
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid {
+		t.Fatal("command lacks its own process group")
+	}
+	if cmd.SysProcAttr.Credential != nil {
+		t.Fatalf(
+			"command switches credentials: %+v",
+			cmd.SysProcAttr.Credential,
+		)
+	}
+	wantArgs := []string{"bash", scriptPath}
+	if !slices.Equal(cmd.Args, wantArgs) {
+		t.Fatalf("command args = %q, want %q", cmd.Args, wantArgs)
 	}
 }
 
@@ -214,131 +228,6 @@ func TestExecutor_Fails_when_log_persistence_fails(t *testing.T) {
 	// Then
 	if !errors.Is(err, persistenceErr) {
 		t.Fatalf("execute error = %v, want persistence error", err)
-	}
-}
-
-func TestExecutor_FailsBeforeStarting_when_capability_drop_fails(t *testing.T) {
-	// Given
-	capabilityErr := errors.New("setpriv missing")
-	marker := filepath.Join(t.TempDir(), "script-ran")
-	previousBinds := chrootBinds
-	previousOptionalBinds := optionalChrootBinds
-	chrootBinds = nil
-	optionalChrootBinds = nil
-	t.Cleanup(func() {
-		chrootBinds = previousBinds
-		optionalChrootBinds = previousOptionalBinds
-	})
-	executor := &Executor{sandbox: &Sandbox{
-		enabled:             true,
-		clearCapabilitiesFn: func(*exec.Cmd, bool) error { return capabilityErr },
-	}}
-	job := NewJob(JobConfig{
-		Name:       "capability failure",
-		ScriptBody: "touch " + marker,
-	})
-
-	// When
-	err := executor.Execute(context.Background(), job, Callbacks{})
-
-	// Then
-	if !errors.Is(err, capabilityErr) {
-		t.Fatalf("execute error = %v, want capability error", err)
-	}
-	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("script marker error = %v, want not exist", statErr)
-	}
-}
-
-func TestExecutor_FailsBeforeStarting_when_bind_mount_fails(t *testing.T) {
-	// Given
-	marker := filepath.Join(t.TempDir(), "script-ran")
-	previousBinds := chrootBinds
-	chrootBinds = []string{"/does-not-exist"}
-	t.Cleanup(func() { chrootBinds = previousBinds })
-	executor := &Executor{sandbox: &Sandbox{enabled: true}}
-	job := NewJob(JobConfig{
-		Name:       "bind failure",
-		ScriptBody: "touch " + marker,
-	})
-
-	// When
-	err := executor.Execute(context.Background(), job, Callbacks{})
-
-	// Then
-	if err == nil {
-		t.Fatal("execute succeeded after bind mount failure")
-	}
-	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("script marker error = %v, want not exist", statErr)
-	}
-}
-
-func TestExecutor_FailsBeforeStarting_when_cgroup_setup_fails(t *testing.T) {
-	// Given
-	marker := filepath.Join(t.TempDir(), "script-ran")
-	cgroupErr := errors.New("cgroup root unavailable")
-	executor := newExecutorForTest(t)
-	executor.sandbox.createCgroupFn = func(int64) (*cgroup, error) {
-		return nil, cgroupErr
-	}
-	job := NewJob(JobConfig{
-		DeploymentID: 1,
-		Name:         "cgroup failure",
-		ScriptBody:   "touch " + marker,
-	})
-
-	// When
-	err := executor.Execute(context.Background(), job, Callbacks{})
-
-	// Then
-	if !errors.Is(err, cgroupErr) {
-		t.Fatalf("execute error = %v, want cgroup error", err)
-	}
-	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("script marker error = %v, want not exist", statErr)
-	}
-}
-
-func TestExecutor_FailsBeforeFork_when_cgroup_placement_fails(t *testing.T) {
-	// Given
-	placementErr := errors.New("cgroup placement failed")
-	marker := filepath.Join(t.TempDir(), "forked-before-cgroup")
-	executor := newExecutorForTest(t)
-	executor.sandbox.configureCgroupFn = func(*exec.Cmd, *cgroup) error {
-		return placementErr
-	}
-	job := NewJob(JobConfig{
-		DeploymentID: 1,
-		Name:         "cgroup placement failure",
-		ScriptBody:   "touch " + marker + "; sleep 1",
-	})
-
-	// When
-	err := executor.Execute(context.Background(), job, Callbacks{})
-
-	// Then
-	if !errors.Is(err, placementErr) {
-		t.Fatalf("execute error = %v, want placement error", err)
-	}
-	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("forked marker error = %v, want not exist", statErr)
-	}
-}
-
-func TestExecutor_Fails_when_cgroup_cleanup_fails(t *testing.T) {
-	// Given
-	cleanupErr := errors.New("remove cgroup")
-	executor := newExecutorForTest(t)
-	executor.sandbox.removeCgroupFn = func(*cgroup) error { return cleanupErr }
-	job := NewJob(JobConfig{Name: "cgroup cleanup failure", ScriptBody: "true"})
-
-	// When
-	err := executor.Execute(context.Background(), job, Callbacks{})
-
-	// Then
-	if !errors.Is(err, cleanupErr) {
-		t.Fatalf("execute error = %v, want cleanup error", err)
 	}
 }
 
