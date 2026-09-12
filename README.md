@@ -15,6 +15,35 @@ make build
 make check
 ```
 
+## Development
+
+Run the current agent source in the existing hardened Podman boundary:
+
+```bash
+make dev
+```
+
+This rebuilds the image once per invocation; it does not hot-reload source
+changes. The default host port `10944` maps to the agent's container pairing
+port `10943`, while the server's direct listener uses host port `10943`. If
+the development port is occupied, choose another one explicitly instead of
+falling back automatically:
+
+```bash
+AGENT_PORT=12044 make dev
+```
+
+The default persistent pairing state is the named Podman volume
+`durpdeploy-agent-state`. Override it only with another named volume:
+
+```bash
+AGENT_STATE_VOLUME=durpdeploy-agent-dev make dev
+```
+
+Stopping the disposable agent container does not remove that volume. Keep the
+paired state across compatible builds. Production execution must continue to
+use the supplied systemd or hardened container definition.
+
 ## Run
 
 Create the service account described in
