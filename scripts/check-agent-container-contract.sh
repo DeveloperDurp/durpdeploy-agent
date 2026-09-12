@@ -112,6 +112,56 @@ require_text bootstrap/commit.go \
 	'serverPin != pairRequest.ServerPin' \
 	'server-init must bind the request server pin to the mTLS peer certificate'
 
+make_output() {
+	local target=$1 output
+	if ! output=$(make -s -C "$root" -n "$target" 2>&1); then
+		echo "agent container contract: Makefile must define a working $target target" >&2
+		exit 1
+	fi
+	printf '%s\n' "$output"
+}
+
+agent_run=$(make_output agent-run)
+if ! grep -Fq -- '--publish 10943:10943' <<<"$agent_run"; then
+	echo 'agent container contract: agent-run must publish 10943:10943' >&2
+	exit 1
+fi
+
+dev=$(make_output dev)
+if [ "$(grep -Fc -- 'podman build' <<<"$dev")" -ne 1 ] || \
+	[ "$(grep -Fc -- 'podman run' <<<"$dev")" -ne 1 ]; then
+	echo 'agent container contract: dev must delegate one build and one run to agent-run' >&2
+	exit 1
+fi
+if ! grep -Fq -- '--publish 10944:10943' <<<"$dev"; then
+	echo 'agent container contract: dev must publish host port 10944 to 10943' >&2
+	exit 1
+fi
+if ! grep -Fq -- '--volume durpdeploy-agent-state:/var/lib/durpdeploy-agent' \
+	<<<"$dev"; then
+	echo 'agent container contract: dev must preserve the named agent state volume' >&2
+	exit 1
+fi
+
+dev_override=$(make -s -C "$root" -n AGENT_PORT=12044 dev)
+if ! grep -Fq -- '--publish 12044:10943' <<<"$dev_override"; then
+	echo 'agent container contract: AGENT_PORT override must reach dev' >&2
+	exit 1
+fi
+dev_environment_override=$(AGENT_PORT=13044 make -s -C "$root" -n dev)
+if ! grep -Fq -- '--publish 13044:10943' <<<"$dev_environment_override"; then
+	echo 'agent container contract: environment AGENT_PORT override must reach dev' >&2
+	exit 1
+fi
+state_override=$(make -s -C "$root" -n \
+	AGENT_STATE_VOLUME=durpdeploy-agent-dev-test dev)
+if ! grep -Fq -- \
+	'--volume durpdeploy-agent-dev-test:/var/lib/durpdeploy-agent' \
+	<<<"$state_override"; then
+	echo 'agent container contract: AGENT_STATE_VOLUME override must reach dev' >&2
+	exit 1
+fi
+
 podman build -f "$root/Dockerfile" -t "$image" "$root"
 
 if [ "$(podman image inspect --format '{{.Config.User}}' "$image")" != 10001 ]; then

@@ -47,6 +47,12 @@ assert_rejected Dockerfile 'SYS_CHROOT' 'Dockerfile requires SYS_CHROOT'
 assert_rejected Dockerfile 'sys_chroot' 'Dockerfile requires SYS_CHROOT'
 assert_rejected Dockerfile 'SYS_ADMIN' 'Dockerfile requires SYS_ADMIN'
 assert_rejected Dockerfile 'sys_admin' 'Dockerfile requires SYS_ADMIN'
+assert_rejected Makefile $'dev:\n\tpodman run --rm bad-image' \
+	'dev must delegate one build and one run to agent-run'
+assert_rejected Makefile 'dev: AGENT_PORT = 10943' \
+	'dev must publish host port 10944 to 10943'
+assert_rejected Makefile 'dev: AGENT_STATE_VOLUME = .local' \
+	'dev must preserve the named agent state volume'
 
 root=$(mktemp -d)
 trap 'rm -rf "$root"' EXIT
