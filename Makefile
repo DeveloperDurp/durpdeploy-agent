@@ -1,10 +1,17 @@
-.PHONY: build test e2e container container-contract container-contract-test compose-contract compose-contract-test systemd-contract systemd-contract-test documentation-contract check agent-run
+.PHONY: build dev test e2e container container-contract container-contract-test compose-contract compose-contract-test systemd-contract systemd-contract-test documentation-contract check agent-run
 
 BINARY_NAME := durpdeploy-agent
 IMAGE ?= durpdeploy-agent:local
 AGENT_STATE_VOLUME ?= durpdeploy-agent-state
 AGENT_PORT ?= 10943
 AGENT_VERSION ?=
+
+dev_port_origin := $(origin AGENT_PORT)
+dev_port_value := $(AGENT_PORT)
+# Keep the agent callback separate from the server listener by default while
+# preserving explicit command-line and environment overrides.
+dev: AGENT_PORT = $(if $(filter command line environment,$(dev_port_origin)),$(dev_port_value),10944)
+dev: agent-run
 
 build:
 	go build -o $(BINARY_NAME) ./cmd/agent
