@@ -98,13 +98,17 @@ func NewCallbacks(config CallbacksConfig) Callbacks {
 
 // Executor executes bash jobs with the local sandbox and process isolation.
 type Executor struct {
-	sandboxErr    error
-	deadlineGrace func()
-	killGroup     func(int)
+	boundaryValidated bool
+	sandboxErr        error
+	deadlineGrace     func()
+	killGroup         func(int)
 }
 
 func NewExecutor() *Executor {
-	return &Executor{sandboxErr: validateExecutionBoundary()}
+	return &Executor{
+		boundaryValidated: true,
+		sandboxErr:        validateExecutionBoundary(),
+	}
 }
 
 func (e *Executor) Execute(
@@ -112,6 +116,9 @@ func (e *Executor) Execute(
 	job Job,
 	callbacks Callbacks,
 ) error {
+	if !e.boundaryValidated {
+		return fmt.Errorf("initialize runner sandbox: boundary not validated")
+	}
 	if e.sandboxErr != nil {
 		return fmt.Errorf("initialize runner sandbox: %w", e.sandboxErr)
 	}
