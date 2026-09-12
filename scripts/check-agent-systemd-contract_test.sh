@@ -44,6 +44,8 @@ assert_rejected 'Delegate=true' 'forbidden Delegate=true'
 assert_rejected 'ProtectControlGroups=false' 'forbidden ProtectControlGroups=false'
 assert_rejected 'RestrictNamespaces=false' 'forbidden RestrictNamespaces=false'
 assert_rejected 'BindReadOnlyPaths=/data' 'forbidden BindReadOnlyPaths=/data'
+assert_rejected 'BindReadOnlyPaths=/var/lib/durpdeploy' \
+	'forbidden BindReadOnlyPaths=/var/lib/durpdeploy'
 assert_rejected 'BindPaths=/var/run/docker.sock' 'forbidden docker.sock'
 assert_rejected 'BindPaths=/run/podman/podman.sock' 'forbidden podman.sock'
 
