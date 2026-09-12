@@ -15,7 +15,7 @@ import (
 
 func newExecutorForTest(t *testing.T) *Executor {
 	t.Helper()
-	return &Executor{}
+	return &Executor{boundaryValidated: true}
 }
 
 func TestExecutor_Succeeds_when_script_exits_zero(t *testing.T) {
@@ -65,7 +65,10 @@ func TestExecutor_CommandDoesNotUseChroot(t *testing.T) {
 		t.Fatal("command lacks its own process group")
 	}
 	if cmd.SysProcAttr.Credential != nil {
-		t.Fatalf("command switches credentials: %+v", cmd.SysProcAttr.Credential)
+		t.Fatalf(
+			"command switches credentials: %+v",
+			cmd.SysProcAttr.Credential,
+		)
 	}
 	wantArgs := []string{"bash", scriptPath}
 	if !slices.Equal(cmd.Args, wantArgs) {
