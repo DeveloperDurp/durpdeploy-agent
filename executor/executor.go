@@ -12,7 +12,10 @@ import (
 	"time"
 )
 
-const defaultStepTimeout = 5 * time.Minute
+const (
+	defaultStepTimeout = 5 * time.Minute
+	serviceUsername    = "durpdeploy-agent"
+)
 
 var ErrCancelled = errors.New("step execution cancelled")
 
@@ -20,8 +23,8 @@ func baseStepEnv() []string {
 	environment := []string{
 		"PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin",
 		"HOME=/nonexistent",
-		"USER=" + runnerUsername,
-		"LOGNAME=" + runnerUsername,
+		"USER=" + serviceUsername,
+		"LOGNAME=" + serviceUsername,
 		"TERM=xterm",
 	}
 	if lang := os.Getenv("LANG"); lang != "" {
@@ -95,15 +98,17 @@ func NewCallbacks(config CallbacksConfig) Callbacks {
 
 // Executor executes bash jobs with the local sandbox and process isolation.
 type Executor struct {
-	sandbox       *Sandbox
-	sandboxErr    error
-	deadlineGrace func()
-	killGroup     func(int)
+	boundaryValidated bool
+	sandboxErr        error
+	deadlineGrace     func()
+	killGroup         func(int)
 }
 
 func NewExecutor() *Executor {
-	sandbox, err := newSandbox()
-	return &Executor{sandbox: sandbox, sandboxErr: err}
+	return &Executor{
+		boundaryValidated: true,
+		sandboxErr:        validateExecutionBoundary(),
+	}
 }
 
 func (e *Executor) Execute(
@@ -111,6 +116,9 @@ func (e *Executor) Execute(
 	job Job,
 	callbacks Callbacks,
 ) error {
+	if !e.boundaryValidated {
+		return fmt.Errorf("initialize runner sandbox: boundary not validated")
+	}
 	if e.sandboxErr != nil {
 		return fmt.Errorf("initialize runner sandbox: %w", e.sandboxErr)
 	}
@@ -176,41 +184,13 @@ func (e *Executor) runAttempt(
 		return err
 	}
 
-	chrooted, err := e.sandbox.setupChroot(tmpDir)
-	if err != nil {
-		return fmt.Errorf("setup runner sandbox: %w", err)
-	}
-	defer e.sandbox.teardownChroot(tmpDir)
-	cmd := e.command(stepCtx, chrooted, tmpDir, scriptPath)
+	cmd := e.command(stepCtx, tmpDir, scriptPath)
 	cmd.Env = baseStepEnv()
 	for key, value := range job.environment {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
 	}
 	cmd.WaitDelay = 15 * time.Second
-	setPgid(cmd)
-	e.sandbox.applyCredential(cmd)
-	if err := e.sandbox.clearCapabilities(cmd, chrooted); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmpDir, 0711); err != nil {
-		return err
-	}
 
-	group, err := e.sandbox.createCgroup(job.deploymentID)
-	if err != nil {
-		return fmt.Errorf("setup runner cgroup: %w", err)
-	}
-	defer func() {
-		if cleanupErr := e.sandbox.removeCgroup(group); cleanupErr != nil {
-			err = errors.Join(
-				err,
-				fmt.Errorf("cleanup runner cgroup: %w", cleanupErr),
-			)
-		}
-	}()
-	if err := e.sandbox.configureCgroup(cmd, group); err != nil {
-		return fmt.Errorf("configure runner cgroup: %w", err)
-	}
 	var output bytes.Buffer
 	cmd.Stdout = io.MultiWriter(&output, writer)
 	cmd.Stderr = io.MultiWriter(&output, writer)
@@ -272,17 +252,11 @@ func (e *Executor) runAttempt(
 
 func (e *Executor) command(
 	ctx context.Context,
-	chrooted bool,
 	tmpDir, scriptPath string,
 ) *exec.Cmd {
-	if !chrooted {
-		cmd := exec.CommandContext(ctx, "bash", scriptPath)
-		cmd.Dir = tmpDir
-		return cmd
-	}
-	cmd := exec.CommandContext(ctx, "/bin/bash", "/script.sh")
-	cmd.Dir = "/"
-	e.sandbox.applyChroot(cmd, tmpDir)
+	cmd := exec.CommandContext(ctx, "bash", scriptPath)
+	cmd.Dir = tmpDir
+	setPgid(cmd)
 	return cmd
 }
 
