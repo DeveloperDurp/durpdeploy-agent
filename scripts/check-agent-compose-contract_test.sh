@@ -51,7 +51,7 @@ for capability in SETUID setuid CAP_SETUID cap_setuid \
 	assert_rejected "cap_add=[\"$capability\"]" \
 		'compose.yml grants a Linux capability'
 done
-assert_rejected 'cgroupns=host' 'compose.yml shares the host cgroup namespace'
+assert_rejected 'cgroup=host' 'compose.yml shares the host cgroup namespace'
 assert_rejected 'volumes=["/sys/fs/cgroup:/sys/fs/cgroup:rw"]' \
 	'compose.yml contains forbidden /sys/fs/cgroup'
 assert_rejected 'volumes=["/data:/data"]' 'compose.yml mounts server data'

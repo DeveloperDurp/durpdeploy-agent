@@ -75,7 +75,7 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
         fail("shares the host PID namespace")
     if str(agent.get("network_mode", "")).lower() == "host":
         fail("shares the host network")
-    if str(agent.get("cgroupns", "")).lower() == "host":
+    if str(agent.get("cgroup", "")).lower() == "host":
         fail("shares the host cgroup namespace")
     volumes = []
     for volume in agent["volumes"]:
