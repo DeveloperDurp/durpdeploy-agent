@@ -1,7 +1,7 @@
 .PHONY: build dev test e2e container container-contract container-contract-test compose-contract compose-contract-test systemd-contract systemd-contract-test documentation-contract check agent-run
 
 BINARY_NAME := durpdeploy-agent
-IMAGE ?= durpdeploy-agent:local
+IMAGE ?= localhost/durpdeploy-agent:local
 AGENT_STATE_VOLUME ?= durpdeploy-agent-state
 AGENT_PORT ?= 10943
 AGENT_VERSION ?=

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root=${AGENT_CONTAINER_CONTRACT_ROOT:-.}
-image=${AGENT_CONTAINER_IMAGE:-durpdeploy-agent:contract}
+image=${AGENT_CONTAINER_IMAGE:-localhost/durpdeploy-agent:contract}
 state_volume="durpdeploy-agent-contract-state-$$"
 trap 'podman volume rm -f "$state_volume" >/dev/null 2>&1 || true' EXIT
 

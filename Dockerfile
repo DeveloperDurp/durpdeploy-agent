@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Agent-only image: compile no server binary or web assets.
-FROM golang:1.26-alpine AS builder
+FROM docker.io/library/golang:1.26-alpine AS builder
 
 WORKDIR /build
 
@@ -18,7 +18,7 @@ COPY transport ./transport
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags='-w -s' -trimpath \
     -o /out/durpdeploy-agent ./cmd/agent
 
-FROM alpine:3.20
+FROM docker.io/library/alpine:3.20
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache bash ca-certificates && \
