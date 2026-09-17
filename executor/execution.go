@@ -22,6 +22,7 @@ type ExecutionConfig struct {
 	Environment      map[string]string
 	Secrets          []string
 	CallbacksForStep func(Step) Callbacks
+	StepFinished     func(Step, error)
 }
 
 // ExecuteSteps runs steps in order, stopping at the first failed or cancelled
@@ -36,7 +37,7 @@ func (e *Executor) ExecuteSteps(
 		if config.CallbacksForStep != nil {
 			callbacks = config.CallbacksForStep(step)
 		}
-		if err := e.Execute(ctx, NewJob(JobConfig{
+		err := e.Execute(ctx, NewJob(JobConfig{
 			DeploymentID: config.DeploymentID,
 			Name:         step.Name,
 			ScriptBody:   step.ScriptBody,
@@ -44,7 +45,11 @@ func (e *Executor) ExecuteSteps(
 			MaxRetries:   int(step.MaxRetries),
 			Environment:  config.Environment,
 			Secrets:      config.Secrets,
-		}), callbacks); err != nil {
+		}), callbacks)
+		if config.StepFinished != nil {
+			config.StepFinished(step, err)
+		}
+		if err != nil {
 			return err
 		}
 	}

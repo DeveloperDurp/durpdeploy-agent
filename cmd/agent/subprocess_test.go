@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -46,6 +47,22 @@ func TestAgentSubprocess_completesOrderedStepsAndRedactsSecrets(t *testing.T) {
 		"\n",
 	); got != "first\n[REDACTED]\nsecond" {
 		t.Fatalf("logs = %q", got)
+	}
+	containerLogs := fixture.stderr.String()
+	for _, want := range []string{
+		`INFO deployment received deployment_id=42 steps=1`,
+		`INFO step started deployment_id=42 step=deploy`,
+		`INFO step output deployment_id=42 step=deploy output=first`,
+		`INFO step output deployment_id=42 step=deploy output=[REDACTED]`,
+		`INFO step finished deployment_id=42 step=deploy status=succeeded`,
+		`INFO deployment execution finished deployment_id=42 status=succeeded`,
+	} {
+		if !strings.Contains(containerLogs, want) {
+			t.Fatalf("container logs missing %q:\n%s", want, containerLogs)
+		}
+	}
+	if strings.Contains(containerLogs, "subprocess-secret") {
+		t.Fatalf("container logs contain secret:\n%s", containerLogs)
 	}
 	fixture.assertNoSecretFiles(t)
 }
@@ -150,6 +167,7 @@ type agentSubprocessFixture struct {
 	startConflict      bool
 	pollAgain          chan struct{}
 	pollAgainOnce      sync.Once
+	stderr             bytes.Buffer
 }
 
 func newAgentSubprocessFixture(
@@ -301,6 +319,7 @@ func (fixture *agentSubprocessFixture) start(t *testing.T) *exec.Cmd {
 		t.Fatalf("build agent: %v: %s", err, output)
 	}
 	command := exec.Command(binary)
+	command.Stderr = &fixture.stderr
 	command.Env = []string{
 		"PATH=" + os.Getenv("PATH"),
 		"DURPDEPLOY_AGENT_STATE_DIR=" + fixture.stateDir,

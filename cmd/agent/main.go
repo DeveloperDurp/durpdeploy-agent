@@ -153,6 +153,11 @@ func executeClaim(
 	if err != nil {
 		return err
 	}
+	slog.Info(
+		"deployment received",
+		"deployment_id", claim.DeploymentID,
+		"steps", len(payload.Release.Steps),
+	)
 	if err := client.Start(
 		ctx,
 		claim.DeploymentID,
@@ -160,6 +165,7 @@ func executeClaim(
 	); err != nil {
 		return err
 	}
+	slog.Info("deployment started", "deployment_id", claim.DeploymentID)
 	executionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cancelled := false
@@ -203,15 +209,40 @@ func executeClaim(
 			Steps:        payload.Release.Steps,
 			Environment:  environment,
 			Secrets:      secrets,
-			CallbacksForStep: func(runner.Step) runner.Callbacks {
+			CallbacksForStep: func(step runner.Step) runner.Callbacks {
+				slog.Info(
+					"step started",
+					"deployment_id", claim.DeploymentID,
+					"step", step.Name,
+				)
 				return runner.NewCallbacks(runner.CallbacksConfig{
-					WriteLog: logs.Write,
+					WriteLog: func(line string) error {
+						slog.Info(
+							"step output",
+							"deployment_id", claim.DeploymentID,
+							"step", step.Name,
+							"output", line,
+						)
+						return logs.Write(line)
+					},
 					Cancelled: func() bool {
 						cancelMu.Lock()
 						defer cancelMu.Unlock()
 						return cancelled
 					},
 				})
+			},
+			StepFinished: func(step runner.Step, stepErr error) {
+				status := agentproto.ResultSucceeded
+				if stepErr != nil {
+					status = agentproto.ResultFailed
+				}
+				slog.Info(
+					"step finished",
+					"deployment_id", claim.DeploymentID,
+					"step", step.Name,
+					"status", status,
+				)
 			},
 		})
 	}
@@ -225,6 +256,11 @@ func executeClaim(
 		ctx.Err() != nil
 	cancelMu.Unlock()
 	if wasCancelled {
+		slog.Info(
+			"deployment execution finished",
+			"deployment_id", claim.DeploymentID,
+			"status", "cancelled",
+		)
 		ackCtx, ackCancel := context.WithTimeout(
 			context.Background(),
 			agentproto.CancelAcknowledgementTimeout,
@@ -236,6 +272,11 @@ func executeClaim(
 	if err != nil {
 		result = agentproto.ResultFailed
 	}
+	slog.Info(
+		"deployment execution finished",
+		"deployment_id", claim.DeploymentID,
+		"status", result,
+	)
 	return client.Result(ctx, claim.DeploymentID, agentproto.ResultRequest{
 		ClaimToken: claim.ClaimToken, State: result,
 	})

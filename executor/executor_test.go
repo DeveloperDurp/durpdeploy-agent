@@ -5,6 +5,7 @@ package executor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -254,5 +255,32 @@ func TestExecutor_ExecuteSteps_stops_after_first_failed_step(t *testing.T) {
 	}
 	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("second step marker error = %v, want not exist", statErr)
+	}
+}
+
+func TestExecutor_ExecuteSteps_reports_finished_step(t *testing.T) {
+	// Given
+	executor := newExecutorForTest(t)
+	var finished []string
+
+	// When
+	err := executor.ExecuteSteps(context.Background(), ExecutionConfig{
+		DeploymentID: 1,
+		Steps: []Step{
+			{Name: "pass", ScriptBody: "true"},
+			{Name: "fail", ScriptBody: "exit 1"},
+		},
+		StepFinished: func(step Step, stepErr error) {
+			finished = append(finished, step.Name+":"+fmt.Sprint(stepErr == nil))
+		},
+	})
+
+	// Then
+	if err == nil {
+		t.Fatal("execute steps succeeded, want failure")
+	}
+	want := []string{"pass:true", "fail:false"}
+	if !slices.Equal(finished, want) {
+		t.Fatalf("finished callbacks = %q, want %q", finished, want)
 	}
 }
