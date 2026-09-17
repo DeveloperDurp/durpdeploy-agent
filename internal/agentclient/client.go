@@ -114,9 +114,7 @@ func (client *Client) sendStatus(
 			_ = response.Body.Close()
 			return 0, err
 		}
-		if response.StatusCode == http.StatusTooManyRequests ||
-			(response.StatusCode >= http.StatusInternalServerError &&
-				response.StatusCode < 600) {
+		if retryableStatus(response.StatusCode) {
 			retryAfter := parseRetryAfter(
 				response.Header.Get("Retry-After"),
 				client.now(),
@@ -146,6 +144,11 @@ func (client *Client) sendStatus(
 		_ = response.Body.Close()
 		return response.StatusCode, nil
 	}
+}
+
+func retryableStatus(status int) bool {
+	return status == http.StatusTooManyRequests ||
+		status >= http.StatusInternalServerError && status < 600
 }
 
 // StatusError reports a non-retryable HTTP response without retaining its body.
