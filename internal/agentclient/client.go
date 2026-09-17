@@ -11,6 +11,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"reflect"
 	"strconv"
 	"sync"
 	"time"
@@ -113,8 +114,9 @@ func (client *Client) sendStatus(
 			_ = response.Body.Close()
 			return 0, err
 		}
-		if response.StatusCode == http.StatusServiceUnavailable ||
-			response.StatusCode == http.StatusTooManyRequests {
+		if response.StatusCode == http.StatusTooManyRequests ||
+			(response.StatusCode >= http.StatusInternalServerError &&
+				response.StatusCode < 600) {
 			retryAfter := parseRetryAfter(
 				response.Header.Get("Retry-After"),
 				client.now(),
@@ -125,14 +127,23 @@ func (client *Client) sendStatus(
 			}
 			continue
 		}
-		defer response.Body.Close()
 		if output != nil && response.StatusCode >= http.StatusOK &&
 			response.StatusCode < http.StatusMultipleChoices &&
 			response.StatusCode != http.StatusNoContent {
+			reflect.ValueOf(output).Elem().SetZero()
 			if err := decodeResponse(response.Body, output); err != nil {
-				return 0, err
+				_ = response.Body.Close()
+				if !errors.Is(err, io.EOF) &&
+					!errors.Is(err, io.ErrUnexpectedEOF) {
+					return 0, err
+				}
+				if err := client.wait(ctx, attempt, 0); err != nil {
+					return 0, err
+				}
+				continue
 			}
 		}
+		_ = response.Body.Close()
 		return response.StatusCode, nil
 	}
 }

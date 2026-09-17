@@ -108,22 +108,48 @@ func TestAgentSubprocess_pollsAgainAfterStaleStart(t *testing.T) {
 	}
 }
 
+func TestAgentSubprocess_reconnectsAfterRejectedPoll(t *testing.T) {
+	fixture := newAgentSubprocessFixture(t, `printf 'recovered\n'`)
+	fixture.pollBadRequestOnce = true
+	process := fixture.start(t)
+
+	var result agentproto.ResultRequest
+	select {
+	case result = <-fixture.result:
+	case <-time.After(5 * time.Second):
+		_ = process.Process.Signal(syscall.SIGTERM)
+		_ = process.Wait()
+		t.Fatal("agent did not recover after rejected poll")
+	}
+	if err := process.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("signal agent: %v", err)
+	}
+	if err := process.Wait(); err != nil {
+		t.Fatalf("wait agent: %v", err)
+	}
+	if result.State != agentproto.ResultSucceeded {
+		t.Fatalf("result state = %q", result.State)
+	}
+}
+
 type agentSubprocessFixture struct {
-	t             *testing.T
-	server        *httptest.Server
-	stateDir      string
-	payload       deploymentPayload
-	identity      agenttls.Identity
-	serverID      agenttls.Identity
-	mu            sync.Mutex
-	logEvents     []agentproto.LogEvent
-	result        chan agentproto.ResultRequest
-	shutdown      context.Context
-	cancel        context.CancelFunc
-	pollServed    bool
-	startConflict bool
-	pollAgain     chan struct{}
-	pollAgainOnce sync.Once
+	t                  *testing.T
+	server             *httptest.Server
+	stateDir           string
+	payload            deploymentPayload
+	identity           agenttls.Identity
+	serverID           agenttls.Identity
+	mu                 sync.Mutex
+	logEvents          []agentproto.LogEvent
+	result             chan agentproto.ResultRequest
+	shutdown           context.Context
+	cancel             context.CancelFunc
+	pollServed         bool
+	pollRejected       bool
+	pollBadRequestOnce bool
+	startConflict      bool
+	pollAgain          chan struct{}
+	pollAgainOnce      sync.Once
 }
 
 func newAgentSubprocessFixture(
@@ -194,6 +220,12 @@ func (fixture *agentSubprocessFixture) handle(
 		writer.WriteHeader(http.StatusNoContent)
 	case agentproto.PollPath:
 		fixture.mu.Lock()
+		if fixture.pollBadRequestOnce && !fixture.pollRejected {
+			fixture.pollRejected = true
+			fixture.mu.Unlock()
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		served := fixture.pollServed
 		fixture.pollServed = true
 		payload := fixture.payload
