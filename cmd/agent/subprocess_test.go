@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -46,6 +47,22 @@ func TestAgentSubprocess_completesOrderedStepsAndRedactsSecrets(t *testing.T) {
 		"\n",
 	); got != "first\n[REDACTED]\nsecond" {
 		t.Fatalf("logs = %q", got)
+	}
+	containerLogs := fixture.stderr.String()
+	for _, want := range []string{
+		`INFO deployment received deployment_id=42 steps=1`,
+		`INFO step started deployment_id=42 step=deploy`,
+		`INFO step output deployment_id=42 step=deploy output=first`,
+		`INFO step output deployment_id=42 step=deploy output=[REDACTED]`,
+		`INFO step finished deployment_id=42 step=deploy status=succeeded`,
+		`INFO deployment execution finished deployment_id=42 status=succeeded`,
+	} {
+		if !strings.Contains(containerLogs, want) {
+			t.Fatalf("container logs missing %q:\n%s", want, containerLogs)
+		}
+	}
+	if strings.Contains(containerLogs, "subprocess-secret") {
+		t.Fatalf("container logs contain secret:\n%s", containerLogs)
 	}
 	fixture.assertNoSecretFiles(t)
 }
@@ -108,22 +125,49 @@ func TestAgentSubprocess_pollsAgainAfterStaleStart(t *testing.T) {
 	}
 }
 
+func TestAgentSubprocess_reconnectsAfterRejectedPoll(t *testing.T) {
+	fixture := newAgentSubprocessFixture(t, `printf 'recovered\n'`)
+	fixture.pollBadRequestOnce = true
+	process := fixture.start(t)
+
+	var result agentproto.ResultRequest
+	select {
+	case result = <-fixture.result:
+	case <-time.After(5 * time.Second):
+		_ = process.Process.Signal(syscall.SIGTERM)
+		_ = process.Wait()
+		t.Fatal("agent did not recover after rejected poll")
+	}
+	if err := process.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("signal agent: %v", err)
+	}
+	if err := process.Wait(); err != nil {
+		t.Fatalf("wait agent: %v", err)
+	}
+	if result.State != agentproto.ResultSucceeded {
+		t.Fatalf("result state = %q", result.State)
+	}
+}
+
 type agentSubprocessFixture struct {
-	t             *testing.T
-	server        *httptest.Server
-	stateDir      string
-	payload       deploymentPayload
-	identity      agenttls.Identity
-	serverID      agenttls.Identity
-	mu            sync.Mutex
-	logEvents     []agentproto.LogEvent
-	result        chan agentproto.ResultRequest
-	shutdown      context.Context
-	cancel        context.CancelFunc
-	pollServed    bool
-	startConflict bool
-	pollAgain     chan struct{}
-	pollAgainOnce sync.Once
+	t                  *testing.T
+	server             *httptest.Server
+	stateDir           string
+	payload            deploymentPayload
+	identity           agenttls.Identity
+	serverID           agenttls.Identity
+	mu                 sync.Mutex
+	logEvents          []agentproto.LogEvent
+	result             chan agentproto.ResultRequest
+	shutdown           context.Context
+	cancel             context.CancelFunc
+	pollServed         bool
+	pollRejected       bool
+	pollBadRequestOnce bool
+	startConflict      bool
+	pollAgain          chan struct{}
+	pollAgainOnce      sync.Once
+	stderr             bytes.Buffer
 }
 
 func newAgentSubprocessFixture(
@@ -194,6 +238,12 @@ func (fixture *agentSubprocessFixture) handle(
 		writer.WriteHeader(http.StatusNoContent)
 	case agentproto.PollPath:
 		fixture.mu.Lock()
+		if fixture.pollBadRequestOnce && !fixture.pollRejected {
+			fixture.pollRejected = true
+			fixture.mu.Unlock()
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		served := fixture.pollServed
 		fixture.pollServed = true
 		payload := fixture.payload
@@ -269,6 +319,7 @@ func (fixture *agentSubprocessFixture) start(t *testing.T) *exec.Cmd {
 		t.Fatalf("build agent: %v: %s", err, output)
 	}
 	command := exec.Command(binary)
+	command.Stderr = &fixture.stderr
 	command.Env = []string{
 		"PATH=" + os.Getenv("PATH"),
 		"DURPDEPLOY_AGENT_STATE_DIR=" + fixture.stateDir,

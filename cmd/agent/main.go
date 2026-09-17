@@ -22,6 +22,8 @@ import (
 
 const claimFileName = "current-claim.json"
 
+const reconnectDelay = time.Second
+
 var newExecutor = runner.NewExecutor
 
 const agentHelpText = `Usage: durpdeploy-agent
@@ -80,35 +82,58 @@ func run(ctx context.Context, configuration config) error {
 			configuration.agentVersion,
 		)
 		if errors.Is(err, agentstate.ErrRePairRequired) {
-			if err := runBootstrap(ctx, configuration.bootstrap); err != nil {
-				return err
+			err = runBootstrap(ctx, configuration.bootstrap)
+		} else if err == nil {
+			err = runPaired(ctx, client)
+			client.Close()
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		if err != nil {
+			slog.Warn(
+				"agent operation failed; retrying",
+				"err", err,
+				"retry_in", reconnectDelay,
+			)
+			if !waitForRetry(ctx) {
+				break
 			}
 			continue
 		}
+	}
+	return ctx.Err()
+}
+
+func runPaired(ctx context.Context, client *agentclient.Client) error {
+	for ctx.Err() == nil {
+		claim, err := client.Poll(ctx)
 		if err != nil {
 			return err
 		}
-		for ctx.Err() == nil {
-			claim, err := client.Poll(ctx)
-			if err != nil {
-				client.Close()
-				return err
-			}
-			if claim == nil {
+		if claim == nil {
+			continue
+		}
+		if err := executeClaim(ctx, client, *claim); err != nil {
+			var statusErr *agentclient.StatusError
+			if errors.As(err, &statusErr) && statusErr.Status == 409 {
 				continue
 			}
-			if err := executeClaim(ctx, client, *claim); err != nil {
-				var statusErr *agentclient.StatusError
-				if errors.As(err, &statusErr) && statusErr.Status == 409 {
-					continue
-				}
-				client.Close()
-				return err
-			}
+			return err
 		}
-		client.Close()
 	}
 	return ctx.Err()
+}
+
+func waitForRetry(ctx context.Context) bool {
+	timer := time.NewTimer(reconnectDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 func executeClaim(
@@ -128,6 +153,11 @@ func executeClaim(
 	if err != nil {
 		return err
 	}
+	slog.Info(
+		"deployment received",
+		"deployment_id", claim.DeploymentID,
+		"steps", len(payload.Release.Steps),
+	)
 	if err := client.Start(
 		ctx,
 		claim.DeploymentID,
@@ -135,6 +165,7 @@ func executeClaim(
 	); err != nil {
 		return err
 	}
+	slog.Info("deployment started", "deployment_id", claim.DeploymentID)
 	executionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cancelled := false
@@ -178,15 +209,40 @@ func executeClaim(
 			Steps:        payload.Release.Steps,
 			Environment:  environment,
 			Secrets:      secrets,
-			CallbacksForStep: func(runner.Step) runner.Callbacks {
+			CallbacksForStep: func(step runner.Step) runner.Callbacks {
+				slog.Info(
+					"step started",
+					"deployment_id", claim.DeploymentID,
+					"step", step.Name,
+				)
 				return runner.NewCallbacks(runner.CallbacksConfig{
-					WriteLog: logs.Write,
+					WriteLog: func(line string) error {
+						slog.Info(
+							"step output",
+							"deployment_id", claim.DeploymentID,
+							"step", step.Name,
+							"output", line,
+						)
+						return logs.Write(line)
+					},
 					Cancelled: func() bool {
 						cancelMu.Lock()
 						defer cancelMu.Unlock()
 						return cancelled
 					},
 				})
+			},
+			StepFinished: func(step runner.Step, stepErr error) {
+				status := agentproto.ResultSucceeded
+				if stepErr != nil {
+					status = agentproto.ResultFailed
+				}
+				slog.Info(
+					"step finished",
+					"deployment_id", claim.DeploymentID,
+					"step", step.Name,
+					"status", status,
+				)
 			},
 		})
 	}
@@ -199,19 +255,29 @@ func executeClaim(
 	wasCancelled := cancelled || errors.Is(err, runner.ErrCancelled) ||
 		ctx.Err() != nil
 	cancelMu.Unlock()
-	ackCtx, ackCancel := context.WithTimeout(
-		context.Background(),
-		agentproto.CancelAcknowledgementTimeout,
-	)
-	defer ackCancel()
 	if wasCancelled {
+		slog.Info(
+			"deployment execution finished",
+			"deployment_id", claim.DeploymentID,
+			"status", "cancelled",
+		)
+		ackCtx, ackCancel := context.WithTimeout(
+			context.Background(),
+			agentproto.CancelAcknowledgementTimeout,
+		)
+		defer ackCancel()
 		return client.Cancelled(ackCtx, claim.DeploymentID, claim.ClaimToken)
 	}
 	result := agentproto.ResultSucceeded
 	if err != nil {
 		result = agentproto.ResultFailed
 	}
-	return client.Result(ackCtx, claim.DeploymentID, agentproto.ResultRequest{
+	slog.Info(
+		"deployment execution finished",
+		"deployment_id", claim.DeploymentID,
+		"status", result,
+	)
+	return client.Result(ctx, claim.DeploymentID, agentproto.ResultRequest{
 		ClaimToken: claim.ClaimToken, State: result,
 	})
 }

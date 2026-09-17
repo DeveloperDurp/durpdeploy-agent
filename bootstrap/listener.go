@@ -73,7 +73,10 @@ func Start(config Config) (*Listener, error) {
 	if err != nil {
 		return nil, err
 	}
-	identity, err := agenttls.LoadOrCreate(config.StateDir, identityURL)
+	identity, err := agenttls.LoadExisting(config.StateDir)
+	if errors.Is(err, os.ErrNotExist) {
+		identity, err = agenttls.LoadOrCreate(config.StateDir, identityURL)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("load bootstrap identity: %w", err)
 	}
