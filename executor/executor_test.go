@@ -53,7 +53,16 @@ func TestExecutor_CommandDoesNotUseChroot(t *testing.T) {
 	scriptPath := filepath.Join(tmpDir, "script.sh")
 
 	// When
-	cmd := executor.command(context.Background(), tmpDir, scriptPath)
+	executable, err := resolveInterpreter(InterpreterBash)
+	if err != nil {
+		t.Fatalf("resolve bash: %v", err)
+	}
+	cmd := executor.command(
+		context.Background(),
+		tmpDir,
+		executable,
+		scriptPath,
+	)
 
 	// Then
 	if cmd.SysProcAttr != nil && cmd.SysProcAttr.Chroot != "" {
@@ -71,7 +80,7 @@ func TestExecutor_CommandDoesNotUseChroot(t *testing.T) {
 			cmd.SysProcAttr.Credential,
 		)
 	}
-	wantArgs := []string{"bash", scriptPath}
+	wantArgs := []string{executable, scriptPath}
 	if !slices.Equal(cmd.Args, wantArgs) {
 		t.Fatalf("command args = %q, want %q", cmd.Args, wantArgs)
 	}

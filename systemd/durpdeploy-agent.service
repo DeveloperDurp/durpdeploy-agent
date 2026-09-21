@@ -29,7 +29,7 @@ StateDirectoryMode=0700
 PrivateTmp=true
 PrivateMounts=true
 NoNewPrivileges=true
-# The agent and Bash children share this preselected unprivileged identity.
+# The agent and child interpreters share this preselected unprivileged identity.
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict

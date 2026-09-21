@@ -15,7 +15,11 @@ var (
 	ErrInvalidTransition = errors.New(
 		"agent protocol: invalid state transition",
 	)
-	ErrInvalidResultState = errors.New("agent protocol: invalid result state")
+	ErrInvalidResultState   = errors.New("agent protocol: invalid result state")
+	ErrInvalidInterpreter   = errors.New("agent protocol: invalid interpreter")
+	ErrDuplicateInterpreter = errors.New(
+		"agent protocol: duplicate interpreter",
+	)
 	ErrInvalidPairingCode = errors.New("agent protocol: invalid pairing code")
 	ErrPairingCodeExpired = errors.New("agent protocol: pairing code expired")
 	ErrPairingCodeUsed    = errors.New(

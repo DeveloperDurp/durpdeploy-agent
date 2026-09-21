@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
@@ -19,7 +20,7 @@ import (
 func TestNewPaired_restartsWithoutManualServerConfiguration(t *testing.T) {
 	// Given
 	serverIdentity := testIdentity(t)
-	versions := make(chan string, 2)
+	polls := make(chan agentproto.PollRequest, 2)
 	server := newTLSServer(t, serverIdentity, func(
 		writer http.ResponseWriter,
 		request *http.Request,
@@ -29,7 +30,7 @@ func TestNewPaired_restartsWithoutManualServerConfiguration(t *testing.T) {
 			if err := json.NewDecoder(request.Body).Decode(&poll); err != nil {
 				t.Fatalf("decode poll request: %v", err)
 			}
-			versions <- string(poll.AgentVersion)
+			polls <- poll
 		}
 		writer.WriteHeader(http.StatusNoContent)
 	})
@@ -79,8 +80,21 @@ func TestNewPaired_restartsWithoutManualServerConfiguration(t *testing.T) {
 		t.Fatalf("restarted paired poll: %v", err)
 	}
 	for _, want := range []string{"persisted", "persisted"} {
-		if got := <-versions; got != want {
+		poll := <-polls
+		if got := string(poll.AgentVersion); got != want {
 			t.Fatalf("poll version = %q, want %q", got, want)
+		}
+		if poll.Protocol != agentproto.AgentV2 {
+			t.Fatalf("poll protocol = %q, want agent/2", poll.Protocol)
+		}
+		if !slices.Contains(
+			poll.SupportedInterpreters,
+			agentproto.InterpreterBash,
+		) {
+			t.Fatalf(
+				"poll interpreters = %q, want bash",
+				poll.SupportedInterpreters,
+			)
 		}
 	}
 }

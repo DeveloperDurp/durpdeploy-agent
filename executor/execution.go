@@ -2,16 +2,34 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"time"
+
+	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
 
-// Step is one immutable bash step from a release snapshot.
+// Step is one immutable step from a release snapshot.
 type Step struct {
-	Name           string `json:"name"`
-	ScriptBody     string `json:"script_body"`
-	SortOrder      int64  `json:"sort_order"`
-	TimeoutSeconds int64  `json:"timeout_seconds"`
-	MaxRetries     int64  `json:"max_retries"`
+	Name           string      `json:"name"`
+	ScriptBody     string      `json:"script_body"`
+	Interpreter    Interpreter `json:"interpreter,omitempty"`
+	SortOrder      int64       `json:"sort_order"`
+	TimeoutSeconds int64       `json:"timeout_seconds"`
+	MaxRetries     int64       `json:"max_retries"`
+}
+
+// MarshalJSON keeps Bash compatible with strict agent/1 payload decoders.
+func (s Step) MarshalJSON() ([]byte, error) {
+	type wireStep Step
+	copy := s
+	interpreter := normalizeInterpreter(copy.Interpreter)
+	if _, err := agentproto.ParseInterpreter(string(interpreter)); err != nil {
+		return nil, err
+	}
+	if interpreter == InterpreterBash {
+		copy.Interpreter = ""
+	}
+	return json.Marshal(wireStep(copy))
 }
 
 // ExecutionConfig supplies a deployment's immutable step snapshot and its
@@ -41,6 +59,7 @@ func (e *Executor) ExecuteSteps(
 			DeploymentID: config.DeploymentID,
 			Name:         step.Name,
 			ScriptBody:   step.ScriptBody,
+			Interpreter:  step.Interpreter,
 			Timeout:      time.Duration(step.TimeoutSeconds) * time.Second,
 			MaxRetries:   int(step.MaxRetries),
 			Environment:  config.Environment,

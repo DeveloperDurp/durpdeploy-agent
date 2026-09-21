@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"slices"
 	"time"
+
+	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
 
 const (
@@ -38,17 +40,19 @@ type JobConfig struct {
 	DeploymentID int64
 	Name         string
 	ScriptBody   string
+	Interpreter  Interpreter
 	Timeout      time.Duration
 	MaxRetries   int
 	Environment  map[string]string
 	Secrets      []string
 }
 
-// Job is an immutable bash step execution request.
+// Job is an immutable step execution request.
 type Job struct {
 	deploymentID int64
 	name         string
 	scriptBody   string
+	interpreter  Interpreter
 	timeout      time.Duration
 	maxRetries   int
 	environment  map[string]string
@@ -64,6 +68,7 @@ func NewJob(config JobConfig) Job {
 		deploymentID: config.DeploymentID,
 		name:         config.Name,
 		scriptBody:   config.ScriptBody,
+		interpreter:  normalizeInterpreter(config.Interpreter),
 		timeout:      config.Timeout,
 		maxRetries:   config.MaxRetries,
 		environment:  environment,
@@ -96,7 +101,7 @@ func NewCallbacks(config CallbacksConfig) Callbacks {
 	}
 }
 
-// Executor executes bash jobs with the local sandbox and process isolation.
+// Executor executes jobs with the local sandbox and process isolation.
 type Executor struct {
 	boundaryValidated bool
 	sandboxErr        error
@@ -122,6 +127,11 @@ func (e *Executor) Execute(
 	if e.sandboxErr != nil {
 		return fmt.Errorf("initialize runner sandbox: %w", e.sandboxErr)
 	}
+	if _, err := agentproto.ParseInterpreter(
+		string(normalizeInterpreter(job.interpreter)),
+	); err != nil {
+		return err
+	}
 	writer := newRedactingWriter(NewScrubber(job.secrets), callbacks.writeLog)
 	maxAttempts := job.maxRetries + 1
 	var lastErr error
@@ -132,6 +142,9 @@ func (e *Executor) Execute(
 		}
 		if callbacks.cancelled != nil && callbacks.cancelled() {
 			return ErrCancelled
+		}
+		if errors.Is(lastErr, ErrInterpreterUnavailable) {
+			return lastErr
 		}
 		if attempt < maxAttempts {
 			if err := writer.write(
@@ -175,7 +188,7 @@ func (e *Executor) runAttempt(
 	}
 	defer os.RemoveAll(tmpDir)
 
-	scriptPath := tmpDir + "/script.sh"
+	scriptPath := tmpDir + "/script" + scriptExtension(job.interpreter)
 	if err := os.WriteFile(
 		scriptPath,
 		[]byte(job.scriptBody),
@@ -184,7 +197,11 @@ func (e *Executor) runAttempt(
 		return err
 	}
 
-	cmd := e.command(stepCtx, tmpDir, scriptPath)
+	executable, err := resolveInterpreter(job.interpreter)
+	if err != nil {
+		return err
+	}
+	cmd := e.command(stepCtx, tmpDir, executable, scriptPath)
 	cmd.Env = baseStepEnv()
 	for key, value := range job.environment {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
@@ -252,9 +269,9 @@ func (e *Executor) runAttempt(
 
 func (e *Executor) command(
 	ctx context.Context,
-	tmpDir, scriptPath string,
+	tmpDir, executable, scriptPath string,
 ) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "bash", scriptPath)
+	cmd := exec.CommandContext(ctx, executable, scriptPath)
 	cmd.Dir = tmpDir
 	setPgid(cmd)
 	return cmd

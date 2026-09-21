@@ -153,6 +153,9 @@ func executeClaim(
 	if err != nil {
 		return err
 	}
+	if err := payload.validateInterpreters(client.SupportsInterpreter); err != nil {
+		return err
+	}
 	slog.Info(
 		"deployment received",
 		"deployment_id", claim.DeploymentID,

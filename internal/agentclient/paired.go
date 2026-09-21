@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/DeveloperDurp/durpdeploy-agent/executor"
 	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
 	"github.com/DeveloperDurp/durpdeploy-agent/state"
 	"github.com/DeveloperDurp/durpdeploy-agent/transport"
@@ -36,7 +37,8 @@ func NewPaired(
 		stateDir:     stateDir,
 		agentID:      agentproto.AgentID(state.AgentID),
 		agentVersion: agentVersion,
-		protocol:     agentproto.AgentV1,
+		protocol:     agentproto.AgentV2,
+		interpreters: executor.SupportedInterpreters(),
 		identity:     identity,
 		pins:         append([]agenttls.Fingerprint(nil), state.ServerPins...),
 		state:        state,

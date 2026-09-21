@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	runner "github.com/DeveloperDurp/durpdeploy-agent/executor"
+)
 
 func TestDecodePayload_acceptsOneBasedStepOrder(t *testing.T) {
 	// Given
@@ -17,6 +21,50 @@ func TestDecodePayload_acceptsOneBasedStepOrder(t *testing.T) {
 	}
 	if got := payload.Release.Steps[0].SortOrder; got != 1 {
 		t.Fatalf("sort_order = %d", got)
+	}
+	if got := payload.Release.Steps[0].Interpreter; got != runner.InterpreterBash {
+		t.Fatalf("interpreter = %q, want bash", got)
+	}
+}
+
+func TestDecodePayload_accepts_fixed_nonBash_interpreter(t *testing.T) {
+	raw := []byte(
+		`{"deployment_id":42,"release":{"id":1,"project_id":1,"version":"v1","steps":[{"name":"deploy","script_body":"print('ok')","interpreter":"python3","sort_order":1,"timeout_seconds":0,"max_retries":0}]},"environment":{"id":1,"name":"test"},"variables":[]}`,
+	)
+
+	payload, err := decodePayload(raw, 42)
+
+	if err != nil {
+		t.Fatalf("valid payload rejected: %v", err)
+	}
+	if got := payload.Release.Steps[0].Interpreter; got != runner.InterpreterPython3 {
+		t.Fatalf("interpreter = %q, want python3", got)
+	}
+}
+
+func TestDecodePayload_rejects_unknown_interpreter(t *testing.T) {
+	raw := []byte(
+		`{"deployment_id":42,"release":{"id":1,"project_id":1,"version":"v1","steps":[{"name":"deploy","script_body":"echo ok","interpreter":"/bin/bash","sort_order":1,"timeout_seconds":0,"max_retries":0}]},"environment":{"id":1,"name":"test"},"variables":[]}`,
+	)
+
+	_, err := decodePayload(raw, 42)
+
+	if err == nil {
+		t.Fatal("unknown interpreter accepted")
+	}
+}
+
+func TestDeploymentPayload_rejects_unavailable_interpreter(t *testing.T) {
+	payload := deploymentPayload{Release: releasePayload{Steps: []runner.Step{
+		{Name: "deploy", Interpreter: runner.InterpreterPwsh},
+	}}}
+
+	err := payload.validateInterpreters(func(runner.Interpreter) bool {
+		return false
+	})
+
+	if err == nil {
+		t.Fatal("unavailable interpreter accepted")
 	}
 }
 

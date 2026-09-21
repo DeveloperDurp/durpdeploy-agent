@@ -17,6 +17,10 @@ type versionedMessage interface {
 	protocolVersion() ProtocolVersion
 }
 
+type validatedMessage interface {
+	validateMessage() error
+}
+
 func DecodeRequest[T Request](body io.Reader) (T, error) {
 	return decodeMessage[T](body, MaxRequestBytes, ErrRequestTooLarge)
 }
@@ -95,6 +99,11 @@ func decodeMessage[T versionedMessage](
 			ErrUnsupportedProtocol,
 		)
 	}
+	if validated, ok := any(request).(validatedMessage); ok {
+		if err := validated.validateMessage(); err != nil {
+			return request, err
+		}
+	}
 	return request, nil
 }
 
@@ -127,6 +136,7 @@ func jsonDecoder(payload []byte) *json.Decoder {
 func decodeError(err error) error {
 	if errors.Is(err, ErrUnsupportedProtocol) ||
 		errors.Is(err, ErrInvalidResultState) ||
+		errors.Is(err, ErrInvalidInterpreter) ||
 		errors.Is(err, ErrInvalidJSON) {
 		return err
 	}

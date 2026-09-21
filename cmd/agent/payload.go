@@ -51,6 +51,10 @@ func decodePayload(raw []byte, deploymentID int64) (deploymentPayload, error) {
 		return deploymentPayload{}, errors.New("deployment payload ID mismatch")
 	}
 	for index, step := range payload.Release.Steps {
+		if step.Interpreter == "" {
+			payload.Release.Steps[index].Interpreter = runner.InterpreterBash
+			step.Interpreter = runner.InterpreterBash
+		}
 		if step.Name == "" || step.ScriptBody == "" ||
 			step.SortOrder != int64(index+1) ||
 			step.TimeoutSeconds < 0 ||
@@ -59,6 +63,21 @@ func decodePayload(raw []byte, deploymentID int64) (deploymentPayload, error) {
 		}
 	}
 	return payload, nil
+}
+
+func (payload deploymentPayload) validateInterpreters(
+	supports func(runner.Interpreter) bool,
+) error {
+	for _, step := range payload.Release.Steps {
+		if !supports(step.Interpreter) {
+			return fmt.Errorf(
+				"step %q requires unavailable interpreter %q",
+				step.Name,
+				step.Interpreter,
+			)
+		}
+	}
+	return nil
 }
 
 func (payload deploymentPayload) environment() (map[string]string, []string, error) {
