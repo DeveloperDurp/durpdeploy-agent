@@ -20,6 +20,10 @@ func (client *Client) Poll(
 			Protocol: client.protocol,
 		},
 		AgentVersion: client.agentVersion,
+		SupportedInterpreters: append(
+			[]agentproto.Interpreter(nil),
+			client.interpreters...,
+		),
 	}
 	var response agentproto.PollResponse
 	status, err := client.sendStatus(

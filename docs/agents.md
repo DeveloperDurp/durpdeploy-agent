@@ -25,10 +25,10 @@ made available to it, its network access, and every effect it can cause within
 the service or container boundary. Read-only storage does not prevent a script
 from reading visible files or exfiltrating supplied secrets.
 
-Supported execution does not use `chroot`. Bash and the agent share the
-preselected unprivileged `durpdeploy-agent` identity with all capability sets
-empty and `NoNewPrivs` enabled. The surrounding service supplies the filesystem
-and cgroup boundary:
+Supported execution does not use `chroot`. Child interpreters and the agent
+share the preselected unprivileged `durpdeploy-agent` identity with all
+capability sets empty and `NoNewPrivs` enabled. The surrounding service
+supplies the filesystem and cgroup boundary:
 
 * Containers use a read-only image root, a private state volume, a private
   `/tmp`, default seccomp and AppArmor confinement, and CPU, memory, and process
@@ -51,6 +51,13 @@ therefore read or change the private agent state volume, including the paired
 identity. Use one agent boundary per trusted script domain and re-pair after any
 suspected state change. The separate host or container still keeps
 control-plane state and arbitrary host data out of reach.
+
+The agent supports only the fixed interpreter names `bash`, `pwsh`, and
+`python3`. It reports only executables installed inside the active service or
+container boundary. The supplied container image includes Bash; build an
+operator-managed image containing `pwsh` or `python3` to advertise those
+capabilities. Interpreter discovery never accepts a server-supplied path or
+arguments.
 
 Agents initiate most runtime connections, but pairing still needs a temporary
 unpaired agent callback listener: after code and fingerprint confirmation, the
@@ -169,8 +176,10 @@ DURPDEPLOY_AGENT_VERSION=<agent-version>
 `DURPDEPLOY_AGENT_STATE_DIR` defaults to the platform configuration directory,
 but production services set it explicitly. `DURPDEPLOY_AGENT_LISTEN_ADDR` is
 needed only while the local pairing listener is open. `DURPDEPLOY_AGENT_VERSION`
-is sent in heartbeats after pairing. The protocol is fixed by the binary as
-`agent/1`; there is no protocol variable.
+is sent after pairing. Pairing uses `agent/1`; v0.2.0 paired traffic uses
+`agent/2`. There is no protocol variable. Upgrade the server to accept v2
+before restarting upgraded agents. During rollout, the server continues to
+accept v1 agents as Bash-only workers.
 
 The first run prints a short-lived pairing code and agent fingerprint. Enter
 those values in the authenticated admin pairing flow, compare the displayed
@@ -273,10 +282,11 @@ sudo systemctl enable --now durpdeploy-agent
 sudo systemctl status durpdeploy-agent --no-pager
 ```
 
-The unit runs the agent and Bash as `durpdeploy-agent`, sets the state directory, uses
-`/etc/durpdeploy-agent.env`, applies a private `UMask=0077`, and permits writes
-only to the agent state directory. It also applies `NoNewPrivileges`, private
-mounts and `/tmp`, and CPU, memory, and task limits. Keep both
+The unit runs the agent and child interpreters as `durpdeploy-agent`, sets the
+state directory, uses `/etc/durpdeploy-agent.env`, applies a private
+`UMask=0077`, and permits writes only to the agent state directory. It also
+applies `NoNewPrivileges`, private mounts and `/tmp`, and CPU, memory, and task
+limits. Keep both
 `/etc/durpdeploy-agent.env` and
 the state directory inaccessible to other users:
 

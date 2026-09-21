@@ -4,7 +4,9 @@ The DurpDeploy Agent executes deployment steps on a remote Linux host. It pairs
 with a DurpDeploy control plane over HTTPS, pins the server identity, decrypts
 authenticated deployment payloads, streams redacted logs, and runs Bash steps
 under the preselected unprivileged agent identity inside a hardened service or
-container boundary. The agent and Bash have zero Linux capabilities.
+container boundary. Protocol v2 agents can also run PowerShell Core and Python
+steps when `pwsh` or `python3` is installed inside that same boundary. The
+agent and child interpreters have zero Linux capabilities.
 
 ## Build
 
@@ -71,4 +73,5 @@ inside the boundary. Use one separately hosted agent per trusted script domain.
 
 DurpDeploy pins this module and uses `protocol`, `transport`, `payload`, and
 `executor`. Breaking wire changes require a new protocol identifier; `agent-v1`
-changes must remain backward compatible.
+changes must remain backward compatible. Upgrade the server to accept
+`agent/2` before starting v0.2.0 agents.

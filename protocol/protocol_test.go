@@ -1,7 +1,9 @@
 package agentproto
 
 import (
+	"encoding/json"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,21 +26,19 @@ func TestProtocolVersion_Parse_accepts_agent_v1(t *testing.T) {
 	}
 }
 
-func TestProtocolVersion_Parse_rejects_agent_v2(t *testing.T) {
+func TestProtocolVersion_Parse_accepts_agent_v2(t *testing.T) {
 	// Given
 	raw := "agent/2"
 
 	// When
-	_, err := ParseProtocolVersion(raw)
+	version, err := ParseProtocolVersion(raw)
 
 	// Then
-	if !errors.Is(err, ErrUnsupportedProtocol) {
-		t.Fatalf(
-			"ParseProtocolVersion(%q) error = %v, want %v",
-			raw,
-			err,
-			ErrUnsupportedProtocol,
-		)
+	if err != nil {
+		t.Fatalf("ParseProtocolVersion(%q): %v", raw, err)
+	}
+	if version != AgentV2 {
+		t.Fatalf("version = %q, want %q", version, AgentV2)
 	}
 }
 
@@ -60,7 +60,7 @@ func TestDecodeRequest_rejects_malformed_or_extra_json(t *testing.T) {
 		},
 		{
 			name:    "unsupported protocol",
-			body:    `{"protocol":"agent/2","agent_version":"v1"}`,
+			body:    `{"protocol":"agent/3","agent_version":"v1"}`,
 			wantErr: ErrUnsupportedProtocol,
 		},
 		{
@@ -199,6 +199,113 @@ func TestDecodeRequest_decodes_agent_v1_payload(t *testing.T) {
 	}
 	if request.Protocol != AgentV1 || request.AgentVersion != "v1" {
 		t.Fatalf("request = %#v, want agent/1 and v1", request)
+	}
+}
+
+func TestDecodeRequest_decodes_agent_v2_interpreters(t *testing.T) {
+	// Given
+	body := strings.NewReader(
+		`{"protocol":"agent/2","agent_version":"v0.2.0","supported_interpreters":["bash","python3"]}`,
+	)
+
+	// When
+	request, err := DecodeRequest[PollRequest](body)
+
+	// Then
+	if err != nil {
+		t.Fatalf("DecodeRequest(): %v", err)
+	}
+	want := []Interpreter{InterpreterBash, InterpreterPython3}
+	if !slices.Equal(request.SupportedInterpreters, want) {
+		t.Fatalf(
+			"supported interpreters = %q, want %q",
+			request.SupportedInterpreters,
+			want,
+		)
+	}
+}
+
+func TestPollRequest_marshal_uses_versioned_shape(t *testing.T) {
+	tests := []struct {
+		name        string
+		request     PollRequest
+		wantPresent bool
+	}{
+		{
+			name: "v1 omits capabilities",
+			request: PollRequest{ProtocolEnvelope: ProtocolEnvelope{
+				Protocol: AgentV1,
+			}},
+		},
+		{
+			name: "v2 includes empty capabilities",
+			request: PollRequest{ProtocolEnvelope: ProtocolEnvelope{
+				Protocol: AgentV2,
+			}},
+			wantPresent: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			encoded, err := json.Marshal(test.request)
+			if err != nil {
+				t.Fatalf("marshal poll: %v", err)
+			}
+			present := strings.Contains(string(encoded), "supported_interpreters")
+			if present != test.wantPresent {
+				t.Fatalf("poll JSON = %s, capability presence = %t", encoded, present)
+			}
+			if test.wantPresent && !strings.Contains(string(encoded), `[]`) {
+				t.Fatalf("poll JSON = %s, want empty capability array", encoded)
+			}
+		})
+	}
+}
+
+func TestDecodeRequest_rejects_invalid_interpreter_capabilities(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantErr error
+	}{
+		{
+			name:    "unknown interpreter",
+			body:    `{"protocol":"agent/2","agent_version":"v0.2.0","supported_interpreters":["/bin/bash"]}`,
+			wantErr: ErrInvalidInterpreter,
+		},
+		{
+			name:    "duplicate interpreter",
+			body:    `{"protocol":"agent/2","agent_version":"v0.2.0","supported_interpreters":["bash","bash"]}`,
+			wantErr: ErrDuplicateInterpreter,
+		},
+		{
+			name:    "v1 capability field",
+			body:    `{"protocol":"agent/1","agent_version":"v0.1.0","supported_interpreters":["bash"]}`,
+			wantErr: ErrUnknownField,
+		},
+		{
+			name:    "v1 empty capability field",
+			body:    `{"protocol":"agent/1","agent_version":"v0.1.0","supported_interpreters":[]}`,
+			wantErr: ErrUnknownField,
+		},
+		{
+			name:    "v2 omitted capability field",
+			body:    `{"protocol":"agent/2","agent_version":"v0.2.0"}`,
+			wantErr: ErrInvalidJSON,
+		},
+		{
+			name:    "v2 null capability field",
+			body:    `{"protocol":"agent/2","agent_version":"v0.2.0","supported_interpreters":null}`,
+			wantErr: ErrInvalidJSON,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := DecodeRequest[PollRequest](strings.NewReader(test.body))
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("DecodeRequest() error = %v, want %v", err, test.wantErr)
+			}
+		})
 	}
 }
 

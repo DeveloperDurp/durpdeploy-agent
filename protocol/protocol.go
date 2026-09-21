@@ -9,6 +9,7 @@ type ProtocolVersion string
 
 const (
 	AgentV1 ProtocolVersion = "agent/1"
+	AgentV2 ProtocolVersion = "agent/2"
 
 	MaxRequestBytes        = 1 << 20
 	MaxLogEvents           = 100
@@ -35,14 +36,15 @@ const (
 )
 
 func ParseProtocolVersion(raw string) (ProtocolVersion, error) {
-	if raw != string(AgentV1) {
+	version := ProtocolVersion(raw)
+	if version != AgentV1 && version != AgentV2 {
 		return "", protocolError(
 			"protocol",
 			ReasonInvalid,
 			ErrUnsupportedProtocol,
 		)
 	}
-	return AgentV1, nil
+	return version, nil
 }
 
 func (v *ProtocolVersion) UnmarshalJSON(data []byte) error {

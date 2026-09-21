@@ -34,12 +34,104 @@ type PairRequest struct {
 
 func (PairRequest) agentRequest() {}
 
+func (r PairRequest) validateMessage() error {
+	if r.Protocol != AgentV1 {
+		return protocolError(
+			"protocol",
+			ReasonInvalid,
+			ErrUnsupportedProtocol,
+		)
+	}
+	return nil
+}
+
 type PollRequest struct {
 	ProtocolEnvelope
-	AgentVersion AgentVersion `json:"agent_version"`
+	AgentVersion          AgentVersion  `json:"agent_version"`
+	SupportedInterpreters []Interpreter `json:"supported_interpreters,omitempty"`
+	supportedPresent      bool
 }
 
 func (PollRequest) agentRequest() {}
+
+func (r PollRequest) MarshalJSON() ([]byte, error) {
+	type v1Poll struct {
+		Protocol     ProtocolVersion `json:"protocol"`
+		AgentVersion AgentVersion    `json:"agent_version"`
+	}
+	if r.Protocol == AgentV1 {
+		return json.Marshal(v1Poll{r.Protocol, r.AgentVersion})
+	}
+	supported := r.SupportedInterpreters
+	if supported == nil {
+		supported = []Interpreter{}
+	}
+	type v2Poll struct {
+		Protocol              ProtocolVersion `json:"protocol"`
+		AgentVersion          AgentVersion    `json:"agent_version"`
+		SupportedInterpreters []Interpreter   `json:"supported_interpreters"`
+	}
+	return json.Marshal(v2Poll{
+		r.Protocol,
+		r.AgentVersion,
+		supported,
+	})
+}
+
+func (r *PollRequest) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Protocol              ProtocolVersion `json:"protocol"`
+		AgentVersion          AgentVersion    `json:"agent_version"`
+		SupportedInterpreters json.RawMessage `json:"supported_interpreters"`
+	}
+	if err := jsonDecoder(data).Decode(&wire); err != nil {
+		return err
+	}
+	r.Protocol = wire.Protocol
+	r.AgentVersion = wire.AgentVersion
+	r.supportedPresent = len(wire.SupportedInterpreters) != 0
+	if !r.supportedPresent {
+		r.SupportedInterpreters = nil
+		return nil
+	}
+	if string(wire.SupportedInterpreters) == "null" {
+		return protocolError(
+			"supported_interpreters",
+			ReasonInvalid,
+			ErrInvalidJSON,
+		)
+	}
+	return json.Unmarshal(wire.SupportedInterpreters, &r.SupportedInterpreters)
+}
+
+func (r PollRequest) validateMessage() error {
+	if r.Protocol == AgentV1 && r.supportedPresent {
+		return protocolError(
+			"supported_interpreters",
+			ReasonUnknown,
+			ErrUnknownField,
+		)
+	}
+	if r.Protocol == AgentV2 && !r.supportedPresent {
+		return protocolError(
+			"supported_interpreters",
+			ReasonInvalid,
+			ErrInvalidJSON,
+		)
+	}
+	seen := make(map[Interpreter]struct{}, len(r.SupportedInterpreters))
+	for _, interpreter := range r.SupportedInterpreters {
+		if _, exists := seen[interpreter]; exists {
+			return protocolError(
+				"supported_interpreters",
+				ReasonDuplicate,
+				ErrDuplicateInterpreter,
+			)
+		}
+		seen[interpreter] = struct{}{}
+	}
+	return nil
+}
 
 // PollResponse carries a single encrypted deployment payload and its
 // one-time claim token. The server persists only a hash of ClaimToken.
