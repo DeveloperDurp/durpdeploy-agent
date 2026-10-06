@@ -202,7 +202,8 @@ func (e *Executor) Execute(
 		if lastErr == nil {
 			return nil
 		}
-		if errors.Is(lastErr, ErrContainerCleanup) {
+		if errors.Is(lastErr, ErrContainerCleanup) ||
+			errors.Is(lastErr, ErrStepOutputLimit) {
 			return lastErr
 		}
 		if callbacks.cancelled != nil && callbacks.cancelled() {
@@ -245,6 +246,7 @@ func (e *Executor) runAttempt(
 	}
 	stepCtx, cancel := context.WithTimeout(runCtx, timeout)
 	defer cancel()
+	writer.cancel = cancel
 
 	tmpDir, err := os.MkdirTemp(
 		"",

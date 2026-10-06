@@ -60,6 +60,9 @@ run)
  if [[ -e "$fixture/missing-interpreter" ]]; then exit 127; fi
  if [[ -e "$fixture/run-fail" ]]; then exit 7; fi
  printf 'ready\n'
+ if [[ -e "$fixture/excess-output" ]]; then
+   while :; do printf '%%4096s' x; done
+ fi
  if [[ -e "$fixture/wait" ]]; then /usr/bin/sleep 30; fi
  printf '%%s\n' "${REGION-unset}" "${DEPLOY_SECRET-unset}" "${UNRELATED-unset}"
  ;;
@@ -89,6 +92,57 @@ esac
 		}
 	})
 	return runner, directory
+}
+
+func TestContainer_excess_output_stops_without_retry_and_confirms_cleanup(
+	t *testing.T,
+) {
+	for _, runtime := range []agentproto.ContainerRuntime{agentproto.RuntimeDocker, agentproto.RuntimePodman} {
+		t.Run(string(runtime), func(t *testing.T) {
+			// Given
+			runner, directory := containerFixture(t, runtime)
+			if err := os.WriteFile(
+				filepath.Join(directory, "excess-output"),
+				nil,
+				0600,
+			); err != nil {
+				t.Fatal(err)
+			}
+			job := NewJob(
+				JobConfig{
+					ScriptBody:     "emit output",
+					ExecutionMode:  agentproto.ExecutionContainer,
+					ContainerImage: "test/image",
+					Timeout:        10 * time.Second,
+					MaxRetries:     2,
+				},
+			)
+			// When
+			err := NewExecutorWithContainers(
+				runner,
+			).Execute(t.Context(), job, Callbacks{})
+			// Then
+			if !errors.Is(err, ErrStepOutputLimit) {
+				t.Fatalf("output limit: %v", err)
+			}
+			actions, err := os.ReadFile(filepath.Join(directory, "actions"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Count(string(actions), "run\n") != 1 ||
+				!strings.Contains(string(actions), "remove\n") {
+				t.Fatalf("retry or missing cleanup: %s", actions)
+			}
+			if _, err := os.Stat(
+				filepath.Join(directory, "owned"),
+			); !errors.Is(
+				err,
+				os.ErrNotExist,
+			) {
+				t.Fatal("attempt remains after output overflow")
+			}
+		})
+	}
 }
 
 func TestContainer_execution_selects_variables_and_redacts_logs(t *testing.T) {

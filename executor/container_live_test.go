@@ -153,3 +153,27 @@ func TestContainerLive_timeout_and_cancellation_remove_attempts(t *testing.T) {
 		})
 	}
 }
+
+func TestContainerLive_excess_output_removes_attempt(t *testing.T) {
+	// Given
+	runner := liveContainerRunner(t)
+	job := NewJob(JobConfig{
+		ScriptBody:     "while :; do printf '%4096s' x; done",
+		ExecutionMode:  agentproto.ExecutionContainer,
+		ContainerImage: "docker.io/library/bash:5.2",
+		Timeout:        time.Minute,
+		MaxRetries:     2,
+	})
+	// When
+	err := NewExecutorWithContainers(
+		runner,
+	).Execute(t.Context(), job, Callbacks{})
+	// Then
+	if !errors.Is(err, ErrStepOutputLimit) {
+		t.Fatalf("output limit: %v", err)
+	}
+	ids, err := runner.ownedContainers(t.Context())
+	if err != nil || len(ids) != 0 {
+		t.Fatalf("containers remain: %v, %v", ids, err)
+	}
+}

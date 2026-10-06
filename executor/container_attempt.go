@@ -33,6 +33,7 @@ func (r *ContainerExecutor) runAttempt(
 	}
 	stepCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	writer.cancel = cancel
 	imageID, err := r.prepareImage(stepCtx, job.containerImage)
 	if err != nil {
 		if stepCtx.Err() != nil {
