@@ -43,6 +43,13 @@ func TestAgentContainerLive_executes_steps_through_mounted_socket(
 	fixture.payload.Release.Steps[0].ContainerImage = "docker.io/library/bash:5.2"
 	fixture.payload.Release.Steps[0].VariableNames = []string{"SECRET"}
 	fixture.server.Close()
+	fixture.serverID, err = agenttls.LoadOrCreate(
+		t.TempDir(),
+		"https://host.test",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	polls := make(chan agentproto.PollRequest, 2)
 	server := httptest.NewUnstartedServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -149,6 +156,7 @@ func TestAgentContainerLive_executes_steps_through_mounted_socket(
 	}
 	done := make(chan error, 1)
 	go func() { done <- command.Wait() }()
+	exited := false
 	defer func() {
 		fixture.cancel()
 		cleanup := exec.Command(
@@ -157,10 +165,16 @@ func TestAgentContainerLive_executes_steps_through_mounted_socket(
 		if raw, err := cleanup.CombinedOutput(); err != nil {
 			t.Errorf("remove test agent: %v: %s", err, raw)
 		}
-		select {
-		case <-done:
-		case <-time.After(15 * time.Second):
-			t.Error("agent client did not exit")
+		if !exited {
+			select {
+			case <-done:
+				exited = true
+			case <-time.After(15 * time.Second):
+				t.Error("agent client did not exit")
+			}
+		}
+		if t.Failed() && exited {
+			t.Logf("agent stderr: %s", fixture.stderr.String())
 		}
 	}()
 	// When
@@ -168,6 +182,7 @@ func TestAgentContainerLive_executes_steps_through_mounted_socket(
 	select {
 	case result = <-fixture.result:
 	case err := <-done:
+		exited = true
 		t.Fatalf("agent exited: %v: %s", err, fixture.stderr.String())
 	case <-time.After(5 * time.Minute):
 		t.Fatal("agent did not return a result")
