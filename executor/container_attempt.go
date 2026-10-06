@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"slices"
 	"strings"
 	"time"
@@ -117,13 +116,6 @@ func (r *ContainerExecutor) runAttempt(
 	if err != nil {
 		if stepCtx.Err() != nil {
 			return fmt.Errorf("container step interrupted: %w", stepCtx.Err())
-		}
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 127 {
-			return fmt.Errorf(
-				"selected interpreter missing from image: %w",
-				ErrInterpreterUnavailable,
-			)
 		}
 		if writeErr := writer.write(
 			fmt.Sprintf(

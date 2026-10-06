@@ -177,3 +177,44 @@ func TestContainerLive_excess_output_removes_attempt(t *testing.T) {
 		t.Fatalf("containers remain: %v, %v", ids, err)
 	}
 }
+
+func TestContainerLive_script_exit127_retries_and_missing_interpreter_reports_failure(
+	t *testing.T,
+) {
+	// Given
+	runner := liveContainerRunner(t)
+	for _, interpreter := range []Interpreter{InterpreterBash, InterpreterPython3} {
+		t.Run(string(interpreter), func(t *testing.T) {
+			var logs []string
+			job := NewJob(
+				JobConfig{
+					Interpreter:    interpreter,
+					ScriptBody:     "echo script-started; exit 127",
+					ExecutionMode:  agentproto.ExecutionContainer,
+					ContainerImage: "docker.io/library/bash:5.2",
+					Timeout:        time.Minute,
+					MaxRetries:     2,
+				},
+			)
+			// When
+			err := NewExecutorWithContainers(
+				runner,
+			).Execute(t.Context(), job, NewCallbacks(CallbacksConfig{
+				WriteLog: func(line string) error { logs = append(logs, line); return nil },
+			}))
+			// Then
+			if err == nil || errors.Is(err, ErrInterpreterUnavailable) ||
+				!strings.Contains(err.Error(), "missing in the image") {
+				t.Fatalf("failure classification: %v", err)
+			}
+			if interpreter == InterpreterBash &&
+				strings.Count(strings.Join(logs, "\n"), "script-started") != 3 {
+				t.Fatalf("script exit skipped retries: %v", logs)
+			}
+			ids, err := runner.ownedContainers(t.Context())
+			if err != nil || len(ids) != 0 {
+				t.Fatalf("containers remain: %v, %v", ids, err)
+			}
+		})
+	}
+}

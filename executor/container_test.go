@@ -60,6 +60,7 @@ run)
  if [[ -e "$fixture/missing-interpreter" ]]; then exit 127; fi
  if [[ -e "$fixture/run-fail" ]]; then exit 7; fi
  printf 'ready\n'
+ if [[ -e "$fixture/script-127" ]]; then printf 'script-started\n'; exit 127; fi
  if [[ -e "$fixture/excess-output" ]]; then
    while :; do printf '%%4096s' x; done
  fi
@@ -294,11 +295,51 @@ func TestContainer_rejects_image_volumes_and_missing_interpreters(
 					t.Fatalf("volume error: %v", err)
 				}
 				if scenario == "missing-interpreter" &&
-					!errors.Is(err, ErrInterpreterUnavailable) {
+					(err == nil || !strings.Contains(err.Error(), "missing in the image")) {
 					t.Fatalf("interpreter error: %v", err)
 				}
 			})
 		}
+	}
+}
+
+func TestContainer_script_exit127_preserves_configured_retries(t *testing.T) {
+	for _, runtime := range []agentproto.ContainerRuntime{agentproto.RuntimeDocker, agentproto.RuntimePodman} {
+		t.Run(string(runtime), func(t *testing.T) {
+			// Given
+			runner, directory := containerFixture(t, runtime)
+			if err := os.WriteFile(
+				filepath.Join(directory, "script-127"),
+				nil,
+				0600,
+			); err != nil {
+				t.Fatal(err)
+			}
+			job := NewJob(
+				JobConfig{
+					ScriptBody:     "exit 127",
+					ExecutionMode:  agentproto.ExecutionContainer,
+					ContainerImage: "test/image",
+					MaxRetries:     2,
+				},
+			)
+			// When
+			err := NewExecutorWithContainers(
+				runner,
+			).Execute(t.Context(), job, Callbacks{})
+			// Then
+			if err == nil || errors.Is(err, ErrInterpreterUnavailable) {
+				t.Fatalf("script classified as missing interpreter: %v", err)
+			}
+			actions, err := os.ReadFile(filepath.Join(directory, "actions"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Count(string(actions), "run\n") != 3 ||
+				strings.Count(string(actions), "remove\n") != 3 {
+				t.Fatalf("retry/cleanup count: %s", actions)
+			}
+		})
 	}
 }
 
