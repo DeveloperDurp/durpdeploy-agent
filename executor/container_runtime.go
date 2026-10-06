@@ -30,6 +30,8 @@ type ContainerConfig struct {
 	Runtime   agentproto.ContainerRuntime
 	SocketURL string
 	AgentID   agentproto.AgentID
+	// PairingIdentity combines the stable server URL and agent certificate identity.
+	PairingIdentity string
 }
 
 // ContainerExecutor owns attempts in one agent identity's runtime namespace.
@@ -61,7 +63,7 @@ func NewContainerExecutor(
 		u.Fragment != "" ||
 		u.Opaque != "" ||
 		!filepath.IsAbs(u.Path) ||
-		config.AgentID == "" {
+		config.AgentID == "" || config.PairingIdentity == "" {
 		return nil, fmt.Errorf(
 			"require an absolute local Unix socket URL and paired agent identity: %w",
 			ErrContainerUnavailable,
@@ -74,7 +76,13 @@ func NewContainerExecutor(
 			ErrContainerUnavailable,
 		)
 	}
-	digest := sha256.Sum256([]byte(config.AgentID))
+	identity, err := json.Marshal(
+		[]string{string(config.AgentID), config.PairingIdentity},
+	)
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(identity)
 	runner := &ContainerExecutor{
 		runtime:    config.Runtime,
 		binary:     binary,

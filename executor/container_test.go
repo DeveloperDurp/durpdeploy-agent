@@ -87,9 +87,10 @@ esac
 	runner, err := NewContainerExecutor(
 		t.Context(),
 		ContainerConfig{
-			Runtime:   runtime,
-			SocketURL: "unix://" + socket,
-			AgentID:   "fixture-agent",
+			Runtime:         runtime,
+			SocketURL:       "unix://" + socket,
+			AgentID:         "fixture-agent",
+			PairingIdentity: "fixture-server/fixture-certificate",
 		},
 	)
 	if err != nil {
@@ -554,5 +555,32 @@ func TestContainer_reconciliation_uses_the_agent_identity_namespace(
 	if !strings.HasPrefix(runner.namespace, "agent-") ||
 		len(runner.namespace) != 70 {
 		t.Fatal("namespace not bound to agent identity")
+	}
+}
+
+func TestContainer_same_agent_id_distinct_pairings_have_distinct_namespaces(
+	t *testing.T,
+) {
+	// Given
+	runner, _ := containerFixture(t, agentproto.RuntimePodman)
+	config := ContainerConfig{
+		Runtime:         runner.runtime,
+		SocketURL:       runner.socketURL,
+		AgentID:         "fixture-agent",
+		PairingIdentity: "other-server/other-certificate",
+	}
+	// When
+	other, err := NewContainerExecutor(t.Context(), config)
+	// Then
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := other.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if runner.namespace == other.namespace {
+		t.Fatal("different pairings share ownership labels")
 	}
 }

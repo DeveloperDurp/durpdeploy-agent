@@ -27,9 +27,10 @@ func liveContainerRunner(t *testing.T) *ContainerExecutor {
 	runner, err := NewContainerExecutor(
 		ctx,
 		ContainerConfig{
-			Runtime:   runtime,
-			SocketURL: os.Getenv("AGENT_TEST_SOCKET"),
-			AgentID:   agentproto.AgentID(t.Name()),
+			Runtime:         runtime,
+			SocketURL:       os.Getenv("AGENT_TEST_SOCKET"),
+			AgentID:         agentproto.AgentID(t.Name()),
+			PairingIdentity: "live-contract-server/live-contract-certificate",
 		},
 	)
 	if err != nil {

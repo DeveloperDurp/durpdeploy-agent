@@ -12,6 +12,7 @@ func (client *Client) EnableContainers(
 	config executor.ContainerConfig,
 ) error {
 	config.AgentID = client.agentID
+	config.PairingIdentity = client.serverURL + "\x00" + client.identity.Fingerprint.String()
 	runner, err := executor.NewContainerExecutor(ctx, config)
 	if err != nil {
 		return err
