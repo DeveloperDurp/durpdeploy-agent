@@ -1,0 +1,12 @@
+# Explicit opt-in override: combine with compose.example.yml after server upgrade.
+# AGENT_RUNTIME_GID must be the existing socket's group; never chmod the socket.
+services:
+  agent:
+    environment:
+      DURPDEPLOY_AGENT_CONTAINER_ENABLED: "true"
+      DURPDEPLOY_AGENT_CONTAINER_RUNTIME: docker
+      DURPDEPLOY_AGENT_CONTAINER_SOCKET: unix:///run/durpdeploy/runtime.sock
+    group_add:
+      - "${AGENT_RUNTIME_GID:?Set the Docker socket group ID}"
+    volumes:
+      - /var/run/docker.sock:/run/durpdeploy/runtime.sock:ro

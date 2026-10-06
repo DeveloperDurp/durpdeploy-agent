@@ -4,6 +4,106 @@ This runbook configures a DurpDeploy server and one outbound-only remote agent.
 It covers the server listener, admin pairing, agent installation, routing,
 maintenance, and recovery.
 
+## Container step execution (agent/3)
+
+Upgrade the DurpDeploy server for the v3 contract before enabling this mode.
+The default agent continues to report v2 host interpreter capabilities. Pairing
+identity and state persist across upgrades; do not re-pair just to enable v3.
+
+Explicit opt-in requires these service environment entries:
+
+```sh
+DURPDEPLOY_AGENT_CONTAINER_ENABLED=true
+DURPDEPLOY_AGENT_CONTAINER_RUNTIME=docker
+DURPDEPLOY_AGENT_CONTAINER_SOCKET=unix:///var/run/docker.sock
+```
+
+Select `podman` and its existing local Unix socket for Podman. TCP and SSH
+endpoints are rejected. Install the selected client for a native agent. The
+agent image contains both clients, but mounts no socket by default.
+
+The runtime must support Linux containers, seccomp, and CPU/memory/PID cgroup
+limits. Rootless Podman needs all three controllers delegated to its service
+user. Preflight failure is logged and blocks polling until the runtime recovers;
+the agent never disables limits to make execution proceed.
+
+### Native systemd
+
+For Docker, enable the host's Docker socket and deliberately grant the dedicated
+agent service account membership in its existing runtime socket group. Configure
+`SupplementaryGroups=docker` in a service drop-in when that is the socket group.
+For rootless Podman, run the socket under the same dedicated execution account
+as the agent and configure, for example,
+`unix:///run/user/10001/podman/podman.sock` with that account's actual UID.
+Configure user-service persistence and cgroup delegation through the host's
+normal service administration. Keep the supplied systemd hardening and
+`DURPDEPLOY_AGENT_EXECUTION_BOUNDARY=service` in place.
+
+The service account must already have permission to connect to the socket.
+The agent does not change socket owner, group, permissions, or SELinux labels.
+Use a host policy that permits the intended socket connection; do not disable
+the workload's security restrictions to work around access errors.
+
+### Agent container with a Docker socket
+
+Use the explicit override, leaving the default Compose definition socket-free:
+
+```sh
+export AGENT_RUNTIME_GID=$(stat -c %g /var/run/docker.sock)
+docker compose -f compose.example.yml -f compose.agent-docker.yml up -d
+```
+
+The agent remains non-root and receives only the existing socket group. Its
+state remains in the private named volume. A read-only socket mount prevents
+filesystem changes through that mount; it does not limit commands sent through
+the runtime API.
+
+### Agent container with a rootless Podman socket
+
+Start the socket under the dedicated execution account, then use its real path:
+
+```sh
+systemctl --user enable --now podman.socket
+export AGENT_PODMAN_SOCKET="$XDG_RUNTIME_DIR/podman/podman.sock"
+podman compose -f compose.example.yml -f compose.agent-podman.yml up -d
+```
+
+The explicit override maps the operator UID/GID to service UID/GID 10001 through
+`keep-id:uid=10001,gid=10001`, so it connects without modifying socket permissions.
+Use a fresh private named state volume
+for that identity, or deliberately migrate existing state ownership during a
+stopped upgrade. Do not delete pairing state to solve an ownership mismatch.
+
+### Workload boundary and recovery
+
+Each step container uses a fixed Bash, PowerShell, or Python entrypoint as UID
+65534, a read-only root, writable 64 MiB `/tmp`, no network, no capabilities,
+no new privileges, one CPU, 256 MiB memory, and at most 128 processes. It mounts
+no agent state, host directory, or runtime socket. The runner pulls missing
+images, rejects declared image volumes on both engines, and executes the
+inspected image ID. The image must contain its selected interpreter.
+
+An empty `variable_names` passes compatible resolved variables. A non-empty
+list passes only its names. Runtime-client variable prefixes (`DOCKER_`,
+`PODMAN_`, `CONTAINER_`, `CONTAINERS_`, `SSH_`, `XDG_`) and `HOME`, `PATH`,
+`TERM`, `TMPDIR`, `REGISTRY_AUTH_FILE` are excluded from default container
+injection and rejected in explicit selections. Secret values never enter client
+arguments. Workload output goes through the existing scrubber.
+
+Containers are labelled with a namespace derived from the paired agent ID.
+After every attempt, including cancellation, the agent removes the container
+and confirms absence. Cleanup uncertainty produces `cleanup_unconfirmed` and
+stops new claims and retries. Restore runtime access; reconciliation removes
+only this agent's attempts before polling resumes. Unrelated containers are
+never selected. The server must retain cleanup uncertainty until authenticated
+ready polling confirms reconciliation.
+
+Runtime socket access gives the agent service host-equivalent authority. Host
+steps share that service UID and can also use its socket access. Use a dedicated
+execution host for untrusted scripts. Workload isolation does not restrict the
+agent service itself, and the operator remains responsible for images, scripts,
+supplied secrets, and their effects inside the chosen boundary.
+
 ## Two storage boundaries
 
 The **server owns the DurpDeploy database**. SQLite, its WAL and SHM files,

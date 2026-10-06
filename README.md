@@ -69,6 +69,12 @@ Configuration remains compatible with existing installations:
 The state directory contains the persistent agent identity and server pins. Do
 not delete it during an upgrade.
 
+Protocol v3 adds opt-in execution in Docker or Podman step containers. Host
+execution remains the default. Upgrade the server for v3 first, then follow
+the [container execution setup](docs/agents.md#container-step-execution-agent3).
+Mount a runtime socket only on a dedicated execution host: socket access grants
+host-equivalent authority to the agent service identity.
+
 The agent and scripts share one UID because switching to a separate runner UID
 would require the forbidden `SETUID` and `SETGID` capabilities. Scripts can
 therefore read or change agent state writable by that UID. Operators are
