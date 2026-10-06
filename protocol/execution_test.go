@@ -16,6 +16,26 @@ func TestPollV3_validates_execution_capabilities(t *testing.T) {
 	}{
 		{"valid", valid, false},
 		{
+			"empty modes",
+			strings.Replace(valid, `["host","container"]`, `[]`, 1),
+			true,
+		},
+		{
+			"unknown mode",
+			strings.Replace(valid, `"host","container"`, `"host","remote"`, 1),
+			true,
+		},
+		{
+			"non-string mode",
+			strings.Replace(valid, `"host","container"`, `"host",42`, 1),
+			true,
+		},
+		{
+			"non-string runtime",
+			strings.Replace(valid, `["podman"]`, `[42]`, 1),
+			true,
+		},
+		{
 			"duplicate mode",
 			strings.Replace(valid, `"host","container"`, `"host","host"`, 1),
 			true,
