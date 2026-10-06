@@ -43,9 +43,11 @@ Do not provide server connection settings manually.
 `
 
 type claimMarker struct {
-	DeploymentID  int64           `json:"deployment_id"`
-	TokenHash     string          `json:"token_hash"`
-	CleanupResult json.RawMessage `json:"cleanup_result,omitempty"`
+	DeploymentID  int64                       `json:"deployment_id"`
+	TokenHash     string                      `json:"token_hash"`
+	CleanupResult json.RawMessage             `json:"cleanup_result,omitempty"`
+	Runtime       agentproto.ContainerRuntime `json:"runtime,omitempty"`
+	SocketURL     string                      `json:"socket_url,omitempty"`
 }
 
 func main() {
@@ -361,6 +363,8 @@ func persistClaim(
 			return err
 		}
 		marker.CleanupResult = sealed
+		marker.Runtime = client.ContainerExecutor().Runtime()
+		marker.SocketURL = client.ContainerExecutor().SocketURL()
 	}
 	contents, err := json.Marshal(marker)
 	if err != nil {
@@ -392,6 +396,13 @@ func resumeCleanupResult(
 	if client.ContainerExecutor() == nil {
 		return fmt.Errorf(
 			"restore container configuration to reconcile pending claim: %w",
+			runner.ErrContainerCleanup,
+		)
+	}
+	if marker.Runtime != client.ContainerExecutor().Runtime() ||
+		marker.SocketURL != client.ContainerExecutor().SocketURL() {
+		return fmt.Errorf(
+			"restore original runtime and socket to reconcile pending claim: %w",
 			runner.ErrContainerCleanup,
 		)
 	}

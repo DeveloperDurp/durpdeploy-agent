@@ -108,6 +108,8 @@ func NewContainerExecutor(
 
 func (r *ContainerExecutor) Runtime() agentproto.ContainerRuntime { return r.runtime }
 
+func (r *ContainerExecutor) SocketURL() string { return r.socketURL }
+
 // Close removes only the temporary client configuration directory created here.
 func (r *ContainerExecutor) Close() error {
 	r.mu.Lock()

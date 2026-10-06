@@ -19,6 +19,17 @@ import (
 func TestRunPaired_replays_encrypted_cleanup_before_polling_after_restart(
 	t *testing.T,
 ) {
+	testCleanupReplay(t, "")
+}
+
+func TestCleanupReplay_rejects_changed_runtime_endpoint(t *testing.T) {
+	for _, change := range []string{"socket", "runtime"} {
+		t.Run(change, func(t *testing.T) { testCleanupReplay(t, change) })
+	}
+}
+
+func testCleanupReplay(t *testing.T, change string) {
+	t.Helper()
 	// Given
 	fixture := newAgentSubprocessFixture(t, "exit 0")
 	fixture.pollServed = true
@@ -50,7 +61,7 @@ func TestRunPaired_replays_encrypted_cleanup_before_polling_after_restart(
 		[]byte(`#!/bin/bash
 while [[ "$1" == --* ]]; do shift; done
 case "$1" in
-info) printf '%s' '{"OSType":"linux","MemoryLimit":true,"CpuCfsQuota":true,"PidsLimit":true,"SecurityOptions":["name=seccomp,profile=builtin"]}' ;;
+info) printf '%s' '{"OSType":"linux","MemoryLimit":true,"CpuCfsQuota":true,"PidsLimit":true,"SecurityOptions":["name=seccomp,profile=builtin"],"host":{"os":"linux","cgroupControllers":["cpu","memory","pids"],"security":{"seccompEnabled":true,"seccompProfilePath":"/usr/share/containers/seccomp.json"}}}' ;;
 ps) ;;
 *) exit 2 ;;
 esac
@@ -80,6 +91,33 @@ esac
 	}
 	fixture.assertNoSecretFiles(t)
 	client.Close()
+	switch change {
+	case "socket":
+		otherSocket := filepath.Join(directory, "other.sock")
+		other, err := net.Listen("unix", otherSocket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := other.Close(); err != nil {
+				t.Error(err)
+			}
+		})
+		config.SocketURL = "unix://" + otherSocket
+	case "runtime":
+		binary, err := os.ReadFile(filepath.Join(directory, "docker"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(
+			filepath.Join(directory, "podman"),
+			binary,
+			0755,
+		); err != nil {
+			t.Fatal(err)
+		}
+		config.Runtime = agentproto.RuntimePodman
+	}
 	restarted, err := agentclient.NewPaired(fixture.stateDir, "test")
 	if err != nil {
 		t.Fatal(err)
@@ -90,6 +128,20 @@ esac
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
+	if change != "" {
+		// When
+		err := resumeCleanupResult(ctx, restarted)
+		// Then
+		if !errors.Is(err, executor.ErrContainerCleanup) {
+			t.Fatalf("changed endpoint accepted recovery: %v", err)
+		}
+		fixture.mu.Lock()
+		defer fixture.mu.Unlock()
+		if fixture.resultRequests != 0 {
+			t.Fatal("sent report after reconciling a different runtime")
+		}
+		return
+	}
 	done := make(chan error, 1)
 	// When
 	go func() { done <- runPaired(ctx, restarted) }()
