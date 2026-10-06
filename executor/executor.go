@@ -205,6 +205,7 @@ func (e *Executor) Execute(
 			return nil
 		}
 		if errors.Is(lastErr, ErrContainerCleanup) ||
+			errors.Is(lastErr, ErrLogDelivery) ||
 			errors.Is(lastErr, ErrStepOutputLimit) {
 			return lastErr
 		}

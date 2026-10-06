@@ -10,6 +10,7 @@ import (
 const maxLogLineBytes = 1024 * 1024
 
 var ErrStepOutputLimit = errors.New("step output line exceeds 1 MiB")
+var ErrLogDelivery = errors.New("step log delivery failed")
 
 type redactingWriter struct {
 	scrubber *Scrubber
@@ -74,6 +75,9 @@ func (w *redactingWriter) flush() error {
 }
 
 func (w *redactingWriter) write(text string) error {
+	if w.err != nil {
+		return w.err
+	}
 	if w.writeLog == nil {
 		return nil
 	}
@@ -82,7 +86,11 @@ func (w *redactingWriter) write(text string) error {
 		"\n",
 	) {
 		if err := w.writeLog(line); err != nil {
-			return err
+			w.err = errors.Join(ErrLogDelivery, err)
+			if w.cancel != nil {
+				w.cancel()
+			}
+			return w.err
 		}
 	}
 	return nil
