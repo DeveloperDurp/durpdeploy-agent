@@ -86,6 +86,8 @@ Preflight requires Docker's built-in seccomp profile or Podman's standard
 `/usr/share/containers/seccomp.json` profile on the runtime host. Every workload
 explicitly selects that profile; custom or unconfined defaults fail readiness.
 Script exit 127 follows configured retries; it cannot prove a missing entrypoint.
+PowerShell scripts are staged inside the private `/tmp` and run with `-File`
+so multiline blocks and terminating errors retain script execution semantics.
 
 An empty `variable_names` passes compatible resolved variables. A non-empty
 list passes only its names. Runtime-client variable prefixes (`DOCKER_`,

@@ -59,6 +59,14 @@ run)
  printf '%%s\n' "$@" > "$fixture/argv"
  if [[ -e "$fixture/missing-interpreter" ]]; then exit 127; fi
  if [[ -e "$fixture/run-fail" ]]; then exit 7; fi
+ if [[ -e "$fixture/pwsh" ]]; then
+   while [[ "$1" != sha256:fixed ]]; do shift; done
+   shift
+   # Emulate the container's private /tmp without writing to the host /tmp.
+   args=()
+   for arg in "$@"; do args+=("${arg//\/tmp\/durpdeploy-step.ps1/$fixture\/durpdeploy-step.ps1}"); done
+   exec "$(cat "$fixture/pwsh")" "${args[@]}"
+ fi
  printf 'ready\n'
  if [[ -e "$fixture/script-127" ]]; then printf 'script-started\n'; exit 127; fi
  if [[ -e "$fixture/excess-output" ]]; then

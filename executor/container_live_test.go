@@ -110,6 +110,40 @@ func TestContainerLive_interpreters_receive_selected_variables(t *testing.T) {
 	}
 }
 
+func TestContainerLive_powershell_executes_complete_scripts(t *testing.T) {
+	// Given
+	runner := liveContainerRunner(t)
+	for _, script := range powerShellScripts {
+		t.Run(script.name, func(t *testing.T) {
+			var logs []string
+			job := NewJob(JobConfig{
+				Interpreter: InterpreterPwsh, ScriptBody: script.script,
+				ExecutionMode:  agentproto.ExecutionContainer,
+				ContainerImage: "mcr.microsoft.com/powershell:latest",
+				MaxRetries:     1, Timeout: time.Minute,
+			})
+			// When
+			err := NewExecutorWithContainers(
+				runner,
+			).Execute(t.Context(), job, NewCallbacks(CallbacksConfig{
+				WriteLog: func(line string) error { logs = append(logs, line); return nil },
+			}))
+			// Then
+			assertPowerShellScriptResult(
+				t,
+				strings.Join(logs, "\n"),
+				script.output,
+				script.exitCode,
+				err,
+			)
+			ids, err := runner.ownedContainers(t.Context())
+			if err != nil || len(ids) != 0 {
+				t.Fatalf("containers remain: %v, %v", ids, err)
+			}
+		})
+	}
+}
+
 func TestContainerLive_timeout_and_cancellation_remove_attempts(t *testing.T) {
 	// Given
 	runner := liveContainerRunner(t)

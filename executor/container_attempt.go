@@ -89,13 +89,15 @@ func (r *ContainerExecutor) runAttempt(
 	case InterpreterBash:
 		args = append(args, "-s")
 	case InterpreterPwsh:
+		// stdin command mode evaluates statements separately. Stage the complete
+		// script in the container's private tmpfs and preserve -File exit semantics.
 		args = append(
 			args,
 			"-NoLogo",
 			"-NoProfile",
 			"-NonInteractive",
 			"-Command",
-			"-",
+			`$ErrorActionPreference = 'Stop'; [IO.File]::WriteAllText('/tmp/durpdeploy-step.ps1', [Console]::In.ReadToEnd()); & "$PSHOME/pwsh" -NoLogo -NoProfile -NonInteractive -File /tmp/durpdeploy-step.ps1; exit $LASTEXITCODE`,
 		)
 	case InterpreterPython3:
 		args = append(args, "-")
