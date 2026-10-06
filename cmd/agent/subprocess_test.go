@@ -67,6 +67,45 @@ func TestAgentSubprocess_completesOrderedStepsAndRedactsSecrets(t *testing.T) {
 	fixture.assertNoSecretFiles(t)
 }
 
+func TestAgentSubprocess_frames_large_redacted_utf8_line_inside_protocol_limits(
+	t *testing.T,
+) {
+	// Given
+	fixture := newAgentSubprocessFixture(
+		t,
+		`printf '%s' "$SECRET"; for ((i=0; i<100000; i++)); do printf '界\t'; done; printf '\n'`,
+	)
+	process := fixture.start(t)
+	// When
+	var result agentproto.ResultRequest
+	select {
+	case result = <-fixture.result:
+	case <-time.After(10 * time.Second):
+		_ = process.Process.Signal(syscall.SIGTERM)
+		_ = process.Wait()
+		t.Fatal("large log did not complete")
+	}
+	if err := process.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if err := process.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	// Then
+	if result.State != agentproto.ResultSucceeded {
+		t.Fatalf("result: %+v", result)
+	}
+	if got := strings.Join(
+		fixture.logs(),
+		"",
+	); got != "[REDACTED]"+strings.Repeat(
+		"界\t",
+		100000,
+	) {
+		t.Fatal("framing lost data or exposed a secret")
+	}
+}
+
 func TestAgentSubprocess_sigtermKillsSpawnedChild(t *testing.T) {
 	// Given
 	pidDir := t.TempDir()
@@ -268,8 +307,12 @@ func (fixture *agentSubprocessFixture) handle(
 		_ = json.NewEncoder(writer).
 			Encode(agentproto.PollResponse{DeploymentID: 42, Payload: string(envelope), ClaimToken: "test-claim"})
 	case "/agent/v1/deployments/42/logs":
-		var batch agentproto.LogBatchRequest
-		_ = json.NewDecoder(request.Body).Decode(&batch)
+		batch, err := agentproto.DecodeLogBatch(request.Body)
+		if err != nil {
+			fixture.t.Error(err)
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		fixture.mu.Lock()
 		fixture.logEvents = append(fixture.logEvents, batch.Events...)
 		fixture.mu.Unlock()
