@@ -173,6 +173,8 @@ are passed through environment entries, never command arguments, and all payload
 secrets remain in the log scrubber even when a step does not select them.
 Output lines are limited to 1 MiB. Exceeding this limit stops execution without
 retry and confirms container removal before reporting failure.
+The agent frames already-redacted output within the existing per-event and
+encoded-batch byte limits, preserving UTF-8 boundaries.
 
 Servers must use `executor.Step.MarshalForProtocol` (or an equivalent validated
 payload boundary) after capability-aware selection. It omits every v3-only field

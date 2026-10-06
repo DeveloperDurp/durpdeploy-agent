@@ -35,7 +35,7 @@ set -eu
 while [[ "$1" == --* ]]; do shift; done
 case "$1" in
 info) [[ ! -e %q ]] || exit 1
-printf '%%s' '{"OSType":"linux","MemoryLimit":true,"CpuCfsQuota":true,"PidsLimit":true,"SecurityOptions":["name=seccomp"],"host":{"os":"linux","cgroupControllers":["cpu","memory","pids"],"security":{"seccompEnabled":true}}}' ;;
+printf '%%s' '{"OSType":"linux","MemoryLimit":true,"CpuCfsQuota":true,"PidsLimit":true,"SecurityOptions":["name=seccomp,profile=builtin"],"host":{"os":"linux","cgroupControllers":["cpu","memory","pids"],"security":{"seccompEnabled":true,"seccompProfilePath":"/usr/share/containers/seccomp.json"}}}' ;;
 ps) ;;
 *) exit 2 ;;
 esac

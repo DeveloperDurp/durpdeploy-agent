@@ -39,7 +39,7 @@ case "$command" in
 info)
  if [[ -e "$fixture/unavailable" ]]; then exit 1; fi
  if [[ -e "$fixture/no-cpu" ]]; then printf '{}'; exit; fi
- printf '%%s' '{"OSType":"linux","MemoryLimit":true,"CpuCfsQuota":true,"PidsLimit":true,"SecurityOptions":["name=seccomp,profile=builtin"],"host":{"os":"linux","cgroupControllers":["cpu","memory","pids"],"security":{"seccompEnabled":true}}}' ;;
+ printf '%%s' '{"OSType":"linux","MemoryLimit":true,"CpuCfsQuota":true,"PidsLimit":true,"SecurityOptions":["name=seccomp,profile=builtin"],"host":{"os":"linux","cgroupControllers":["cpu","memory","pids"],"security":{"seccompEnabled":true,"seccompProfilePath":"/usr/share/containers/seccomp.json"}}}' ;;
 ps)
  [[ ! -e "$fixture/owned" ]] || printf '%%s\n' owned
  ;;
@@ -202,6 +202,16 @@ func TestContainer_execution_selects_variables_and_redacts_logs(t *testing.T) {
 				if !strings.Contains(string(args), required) {
 					t.Fatalf("missing isolation option %s", required)
 				}
+			}
+			profile := "builtin"
+			if runtime == agentproto.RuntimePodman {
+				profile = podmanSeccompProfile
+			}
+			if !strings.Contains(
+				string(args),
+				"--security-opt=seccomp="+profile,
+			) {
+				t.Fatal("seccomp policy inherits runtime default")
 			}
 			if _, err := os.Stat(
 				filepath.Join(directory, "owned"),
@@ -465,6 +475,43 @@ func TestContainer_preflight_fails_closed_and_recovers(t *testing.T) {
 				ErrContainerUnavailable,
 			) {
 				t.Fatalf("missing resource control: %v", err)
+			}
+		})
+	}
+}
+
+func TestContainer_preflight_rejects_unconfined_or_custom_seccomp_profiles(
+	t *testing.T,
+) {
+	for _, profile := range []string{"builtin", "unconfined", "/custom/permissive.json", ""} {
+		t.Run(profile, func(t *testing.T) {
+			// Given
+			runner := &ContainerExecutor{runtime: agentproto.RuntimeDocker}
+			raw := fmt.Sprintf(
+				`{"OSType":"linux","MemoryLimit":true,"CpuCfsQuota":true,"PidsLimit":true,"SecurityOptions":["name=seccomp,profile=%s"]}`,
+				profile,
+			)
+			// When
+			err := runner.validateRuntimeInfo([]byte(raw))
+			// Then
+			if (err == nil) != (profile == "builtin") {
+				t.Fatalf("Docker seccomp %q: %v", profile, err)
+			}
+		})
+	}
+	for _, profile := range []string{podmanSeccompProfile, "unconfined", "/custom/permissive.json", ""} {
+		t.Run(profile, func(t *testing.T) {
+			// Given
+			runner := &ContainerExecutor{runtime: agentproto.RuntimePodman}
+			raw := fmt.Sprintf(
+				`{"host":{"os":"linux","cgroupControllers":["cpu","memory","pids"],"security":{"seccompEnabled":true,"seccompProfilePath":%q}}}`,
+				profile,
+			)
+			// When
+			err := runner.validateRuntimeInfo([]byte(raw))
+			// Then
+			if (err == nil) != (profile == podmanSeccompProfile) {
+				t.Fatalf("Podman seccomp %q: %v", profile, err)
 			}
 		})
 	}

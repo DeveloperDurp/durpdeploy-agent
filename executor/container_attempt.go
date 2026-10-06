@@ -66,7 +66,15 @@ func (r *ContainerExecutor) runAttempt(
 		"--env=HOME=/tmp", "--env=TERM=dumb", "--workdir=/tmp",
 		"--pids-limit=128", "--memory=256m", "--cpus=1", "--log-driver=none"}
 	if r.runtime == agentproto.RuntimePodman {
-		args = append(args, "--image-volume=ignore", "--http-proxy=false")
+		args = append(
+			args,
+			"--image-volume=ignore",
+			"--http-proxy=false",
+			"--seccomp-policy=default",
+			"--security-opt=seccomp="+podmanSeccompProfile,
+		)
+	} else {
+		args = append(args, "--security-opt=seccomp=builtin")
 	}
 	names := make([]string, 0, len(job.environment))
 	for name := range job.environment {

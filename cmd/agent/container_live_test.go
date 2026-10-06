@@ -37,7 +37,7 @@ func TestAgentContainerLive_executes_steps_through_mounted_socket(
 	}
 	fixture := newAgentSubprocessFixture(
 		t,
-		`printf 'container-agent\n'; printf '%s\n' "$SECRET"; test ! -e /run/durpdeploy/runtime.sock`,
+		`printf 'container-agent\n'; printf '%s\n' "$SECRET"; printf '%20000s\n' x; test ! -e /run/durpdeploy/runtime.sock`,
 	)
 	fixture.payload.Release.Steps[0].ExecutionMode = agentproto.ExecutionContainer
 	fixture.payload.Release.Steps[0].ContainerImage = "docker.io/library/bash:5.2"

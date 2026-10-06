@@ -82,6 +82,10 @@ no new privileges, one CPU, 256 MiB memory, and at most 128 processes. It mounts
 no agent state, host directory, or runtime socket. The runner pulls missing
 images, rejects declared image volumes on both engines, and executes the
 inspected image ID. The image must contain its selected interpreter.
+Preflight requires Docker's built-in seccomp profile or Podman's standard
+`/usr/share/containers/seccomp.json` profile on the runtime host. Every workload
+explicitly selects that profile; custom or unconfined defaults fail readiness.
+Script exit 127 follows configured retries; it cannot prove a missing entrypoint.
 
 An empty `variable_names` passes compatible resolved variables. A non-empty
 list passes only its names. Runtime-client variable prefixes (`DOCKER_`,
@@ -91,6 +95,7 @@ list passes only its names. Runtime-client variable prefixes (`DOCKER_`,
 injection and rejected in explicit selections. Secret values never enter client
 arguments. Workload output goes through the existing scrubber. An output line
 over 1 MiB stops the step without retry; container cleanup still runs.
+Redacted output is framed into UTF-8 log events and batches within protocol limits.
 
 Containers are labelled with a namespace derived from the paired agent ID.
 After every attempt, including cancellation, the agent removes the container

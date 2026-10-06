@@ -24,6 +24,8 @@ var (
 	ErrContainerCleanup     = errors.New("container cleanup unconfirmed")
 )
 
+const podmanSeccompProfile = "/usr/share/containers/seccomp.json"
+
 type ContainerConfig struct {
 	Runtime   agentproto.ContainerRuntime
 	SocketURL string
@@ -183,7 +185,10 @@ func (r *ContainerExecutor) validateRuntimeInfo(raw []byte) error {
 		Host        struct {
 			OS                string
 			CgroupControllers []string
-			Security          struct{ SeccompEnabled bool }
+			Security          struct {
+				SeccompEnabled     bool
+				SeccompProfilePath string
+			}
 		}
 		SecurityOptions []string
 	}
@@ -195,19 +200,18 @@ func (r *ContainerExecutor) validateRuntimeInfo(raw []byte) error {
 	}
 	ready := info.OSType == "linux" && info.MemoryLimit && info.CpuCfsQuota &&
 		info.PidsLimit
-	seccomp := false
-	for _, option := range info.SecurityOptions {
-		if strings.HasPrefix(option, "name=seccomp") {
-			seccomp = true
-		}
-	}
+	seccomp := slices.Contains(
+		info.SecurityOptions,
+		"name=seccomp,profile=builtin",
+	)
 	if r.runtime == agentproto.RuntimePodman {
 		ready = info.Host.OS == "linux"
 		for _, controller := range []string{"cpu", "memory", "pids"} {
 			ready = ready &&
 				slices.Contains(info.Host.CgroupControllers, controller)
 		}
-		seccomp = info.Host.Security.SeccompEnabled
+		seccomp = info.Host.Security.SeccompEnabled &&
+			info.Host.Security.SeccompProfilePath == podmanSeccompProfile
 	}
 	if !ready || !seccomp {
 		return fmt.Errorf(
