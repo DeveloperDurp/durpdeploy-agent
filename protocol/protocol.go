@@ -10,6 +10,7 @@ type ProtocolVersion string
 const (
 	AgentV1 ProtocolVersion = "agent/1"
 	AgentV2 ProtocolVersion = "agent/2"
+	AgentV3 ProtocolVersion = "agent/3"
 
 	MaxRequestBytes        = 1 << 20
 	MaxLogEvents           = 100
@@ -37,7 +38,7 @@ const (
 
 func ParseProtocolVersion(raw string) (ProtocolVersion, error) {
 	version := ProtocolVersion(raw)
-	if version != AgentV1 && version != AgentV2 {
+	if version != AgentV1 && version != AgentV2 && version != AgentV3 {
 		return "", protocolError(
 			"protocol",
 			ReasonInvalid,

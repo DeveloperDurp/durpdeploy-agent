@@ -3,15 +3,16 @@ package agentproto
 type DispatchState string
 
 const (
-	DispatchWaiting           DispatchState = "waiting"
-	DispatchClaimed           DispatchState = "claimed"
-	DispatchStarted           DispatchState = "started"
-	DispatchSucceeded         DispatchState = "succeeded"
-	DispatchFailed            DispatchState = "failed"
-	DispatchCancelled         DispatchState = "cancelled"
-	DispatchLost              DispatchState = "lost"
-	DispatchCancelRequested   DispatchState = "cancel_requested"
-	DispatchCancelUnconfirmed DispatchState = "cancel_unconfirmed"
+	DispatchWaiting            DispatchState = "waiting"
+	DispatchClaimed            DispatchState = "claimed"
+	DispatchStarted            DispatchState = "started"
+	DispatchSucceeded          DispatchState = "succeeded"
+	DispatchFailed             DispatchState = "failed"
+	DispatchCancelled          DispatchState = "cancelled"
+	DispatchLost               DispatchState = "lost"
+	DispatchCancelRequested    DispatchState = "cancel_requested"
+	DispatchCancelUnconfirmed  DispatchState = "cancel_unconfirmed"
+	DispatchCleanupUnconfirmed DispatchState = "cleanup_unconfirmed"
 )
 
 func Transition(from, to DispatchState) (DispatchState, error) {
@@ -35,10 +36,10 @@ func CanTransition(from, to DispatchState) bool {
 	case DispatchStarted:
 		return to == DispatchSucceeded || to == DispatchFailed ||
 			to == DispatchCancelled || to == DispatchLost ||
-			to == DispatchCancelRequested
+			to == DispatchCancelRequested || to == DispatchCleanupUnconfirmed
 	case DispatchCancelRequested:
 		return to == DispatchCancelled || to == DispatchCancelUnconfirmed ||
-			to == DispatchLost
+			to == DispatchLost || to == DispatchCleanupUnconfirmed
 	default:
 		return false
 	}
@@ -50,7 +51,7 @@ func Complete(
 	result ResultState,
 ) (DispatchState, error) {
 	switch state {
-	case DispatchSucceeded, DispatchFailed:
+	case DispatchSucceeded, DispatchFailed, DispatchCleanupUnconfirmed:
 		return "", protocolError("result", ReasonDuplicate, ErrDuplicateResult)
 	case DispatchStarted:
 		switch result {
@@ -58,6 +59,8 @@ func Complete(
 			return Transition(state, DispatchSucceeded)
 		case ResultFailed:
 			return Transition(state, DispatchFailed)
+		case ResultCleanupUnconfirmed:
+			return Transition(state, DispatchCleanupUnconfirmed)
 		default:
 			return "", protocolError(
 				"result.state",
@@ -65,6 +68,11 @@ func Complete(
 				ErrInvalidResultState,
 			)
 		}
+	case DispatchCancelRequested:
+		if result == ResultCleanupUnconfirmed {
+			return Transition(state, DispatchCleanupUnconfirmed)
+		}
+		return "", protocolError("result", ReasonInvalid, ErrInvalidTransition)
 	default:
 		return "", protocolError("result", ReasonInvalid, ErrInvalidTransition)
 	}
