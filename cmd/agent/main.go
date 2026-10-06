@@ -34,6 +34,9 @@ Inputs:
   DURPDEPLOY_AGENT_LISTEN_ADDR  local address used only while pairing
   DURPDEPLOY_AGENT_STATE_DIR    private persistent state directory
   DURPDEPLOY_AGENT_VERSION      agent version sent after pairing
+  DURPDEPLOY_AGENT_CONTAINER_ENABLED  enable agent/3 container execution (false)
+  DURPDEPLOY_AGENT_CONTAINER_RUNTIME  docker or podman (required when enabled)
+  DURPDEPLOY_AGENT_CONTAINER_SOCKET   absolute unix socket URL (required when enabled)
 
 Pairing stores the server URL, pinned fingerprints, and agent ID in state.
 Do not provide server connection settings manually.
@@ -84,7 +87,12 @@ func run(ctx context.Context, configuration config) error {
 		if errors.Is(err, agentstate.ErrRePairRequired) {
 			err = runBootstrap(ctx, configuration.bootstrap)
 		} else if err == nil {
-			err = runPaired(ctx, client)
+			if configuration.containers {
+				err = client.EnableContainers(ctx, configuration.container)
+			}
+			if err == nil {
+				err = runPaired(ctx, client)
+			}
 			client.Close()
 		}
 		if ctx.Err() != nil {
@@ -144,7 +152,12 @@ func executeClaim(
 	if err := persistClaim(client, claim); err != nil {
 		return err
 	}
-	defer clearClaim(client)
+	cleanupConfirmed := true
+	defer func() {
+		if cleanupConfirmed {
+			clearClaim(client)
+		}
+	}()
 	plaintext, err := client.DecodePayload(claim)
 	if err != nil {
 		return err
@@ -153,7 +166,10 @@ func executeClaim(
 	if err != nil {
 		return err
 	}
-	if err := payload.validateInterpreters(client.SupportsInterpreter); err != nil {
+	if err := payload.validateExecution(client.SupportsStep); err != nil {
+		return err
+	}
+	if err := client.ValidateExecutionReady(ctx); err != nil {
 		return err
 	}
 	slog.Info(
@@ -207,6 +223,11 @@ func executeClaim(
 	environment, secrets, err := payload.environment()
 	if err == nil {
 		executor := newExecutor()
+		if client.ContainerExecutor() != nil {
+			executor = runner.NewExecutorWithContainers(
+				client.ContainerExecutor(),
+			)
+		}
 		err = executor.ExecuteSteps(executionCtx, runner.ExecutionConfig{
 			DeploymentID: int64(claim.DeploymentID),
 			Steps:        payload.Release.Steps,
@@ -258,6 +279,26 @@ func executeClaim(
 	wasCancelled := cancelled || errors.Is(err, runner.ErrCancelled) ||
 		ctx.Err() != nil
 	cancelMu.Unlock()
+	if errors.Is(err, runner.ErrContainerCleanup) {
+		cleanupConfirmed = false
+		reportCtx, reportCancel := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			agentproto.CancelAcknowledgementTimeout,
+		)
+		defer reportCancel()
+		if reportErr := client.Result(
+			reportCtx,
+			claim.DeploymentID,
+			agentproto.ResultRequest{
+				ClaimToken: claim.ClaimToken,
+				State:      agentproto.ResultCleanupUnconfirmed,
+				Error:      "Container cleanup could not be confirmed. Restore runtime access; the agent will reconcile its owned attempts before polling.",
+			},
+		); reportErr != nil {
+			return reportErr
+		}
+		return err
+	}
 	if wasCancelled {
 		slog.Info(
 			"deployment execution finished",

@@ -59,3 +59,47 @@ func TestLoadConfig_ignoresManualServerConfiguration(t *testing.T) {
 		)
 	}
 }
+
+func TestLoadConfig_container_execution_requires_explicit_configuration(
+	t *testing.T,
+) {
+	for _, scenario := range []string{"disabled", "invalid-enabled", "missing-runtime", "missing-socket", "valid"} {
+		t.Run(scenario, func(t *testing.T) {
+			// Given
+			t.Setenv("DURPDEPLOY_AGENT_CONTAINER_ENABLED", "true")
+			t.Setenv("DURPDEPLOY_AGENT_CONTAINER_RUNTIME", "podman")
+			t.Setenv(
+				"DURPDEPLOY_AGENT_CONTAINER_SOCKET",
+				"unix:///run/podman/podman.sock",
+			)
+			switch scenario {
+			case "disabled":
+				t.Setenv("DURPDEPLOY_AGENT_CONTAINER_ENABLED", "")
+			case "invalid-enabled":
+				t.Setenv("DURPDEPLOY_AGENT_CONTAINER_ENABLED", "sometimes")
+			case "missing-runtime":
+				t.Setenv("DURPDEPLOY_AGENT_CONTAINER_RUNTIME", "")
+			case "missing-socket":
+				t.Setenv("DURPDEPLOY_AGENT_CONTAINER_SOCKET", "")
+			}
+			// When
+			configuration, err := loadConfig()
+			// Then
+			if scenario == "valid" {
+				if err != nil || !configuration.containers {
+					t.Fatalf("enabled config: %v", err)
+				}
+				return
+			}
+			if scenario == "disabled" {
+				if err != nil || configuration.containers {
+					t.Fatalf("default config: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("accepted incomplete container config")
+			}
+		})
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	runner "github.com/DeveloperDurp/durpdeploy-agent/executor"
 )
@@ -51,18 +52,34 @@ func decodePayload(raw []byte, deploymentID int64) (deploymentPayload, error) {
 		return deploymentPayload{}, errors.New("deployment payload ID mismatch")
 	}
 	for index, step := range payload.Release.Steps {
+		if err := step.ValidateExecution(); err != nil {
+			return deploymentPayload{}, err
+		}
 		if step.Interpreter == "" {
 			payload.Release.Steps[index].Interpreter = runner.InterpreterBash
 			step.Interpreter = runner.InterpreterBash
 		}
 		if step.Name == "" || step.ScriptBody == "" ||
 			step.SortOrder != int64(index+1) ||
-			step.TimeoutSeconds < 0 ||
-			step.MaxRetries < 0 {
+			step.TimeoutSeconds < 0 || step.TimeoutSeconds > int64((1<<63-1)/time.Second) ||
+			step.MaxRetries < 0 || step.MaxRetries > int64(int(^uint(0)>>1))-1 {
 			return deploymentPayload{}, errors.New("invalid deployment payload")
 		}
 	}
 	return payload, nil
+}
+
+func (payload deploymentPayload) validateExecution(
+	supports func(runner.Step) bool,
+) error {
+	for _, step := range payload.Release.Steps {
+		if !supports(step) {
+			return errors.New(
+				"deployment requires unavailable execution capabilities",
+			)
+		}
+	}
+	return nil
 }
 
 func (payload deploymentPayload) validateInterpreters(
