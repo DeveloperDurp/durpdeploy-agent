@@ -39,6 +39,7 @@ type ContainerExecutor struct {
 	socketURL  string
 	socketPath string
 	namespace  string
+	clientHome string
 	mu         sync.Mutex
 	cleanupErr error
 }
@@ -79,19 +80,39 @@ func NewContainerExecutor(
 		socketPath: u.Path,
 		namespace:  "agent-" + hex.EncodeToString(digest[:]),
 	}
+	runner.clientHome, err = os.MkdirTemp("", "durpdeploy-runtime-client-*")
+	if err != nil {
+		return nil, fmt.Errorf("create private runtime client home: %w", err)
+	}
+	if err := os.Mkdir(
+		filepath.Join(runner.clientHome, ".config"),
+		0700,
+	); err != nil {
+		return nil, errors.Join(err, runner.Close())
+	}
 	if err := runner.Ready(ctx); err != nil {
-		return nil, err
+		return nil, errors.Join(err, runner.Close())
 	}
 	return runner, nil
 }
 
 func (r *ContainerExecutor) Runtime() agentproto.ContainerRuntime { return r.runtime }
 
+// Close removes only the temporary client configuration directory created here.
+func (r *ContainerExecutor) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return os.RemoveAll(r.clientHome)
+}
+
 func (r *ContainerExecutor) command(
 	ctx context.Context,
 	args ...string,
 ) *exec.Cmd {
-	clientArgs := []string{"--host=" + r.socketURL, "--config=/nonexistent"}
+	clientArgs := []string{
+		"--host=" + r.socketURL,
+		"--config=" + filepath.Join(r.clientHome, ".docker"),
+	}
 	if r.runtime == agentproto.RuntimePodman {
 		clientArgs = []string{"--remote", "--url=" + r.socketURL}
 	}
@@ -100,7 +121,7 @@ func (r *ContainerExecutor) command(
 	// overrides and every deployment variable. Only run commands add selected names.
 	cmd.Env = []string{
 		"PATH=/usr/local/bin:/usr/bin:/bin",
-		"HOME=/nonexistent",
+		"HOME=" + r.clientHome,
 		"TERM=dumb",
 	}
 	cmd.WaitDelay = 2 * time.Second

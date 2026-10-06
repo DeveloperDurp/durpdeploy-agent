@@ -83,6 +83,11 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		if err := runner.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	return runner, directory
 }
 

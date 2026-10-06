@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"reflect"
@@ -62,7 +63,14 @@ func (client *Client) SupportsInterpreter(
 }
 
 // Close releases idle outbound connections. It never starts a listener.
-func (client *Client) Close() { client.http.CloseIdleConnections() }
+func (client *Client) Close() {
+	client.http.CloseIdleConnections()
+	if client.container != nil {
+		if err := client.container.Close(); err != nil {
+			slog.Warn("remove private runtime client home", "err", err)
+		}
+	}
+}
 
 // StateDir returns the private directory holding this client's identity and pins.
 func (client *Client) StateDir() string { return client.stateDir }
