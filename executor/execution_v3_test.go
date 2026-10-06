@@ -9,6 +9,23 @@ import (
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
 
+func TestStep_protocol_serialization_rejects_invalid_execution_mode(
+	t *testing.T,
+) {
+	for _, version := range []agentproto.ProtocolVersion{agentproto.AgentV1, agentproto.AgentV2, agentproto.AgentV3} {
+		t.Run(string(version), func(t *testing.T) {
+			// Given
+			step := Step{Interpreter: InterpreterBash, ExecutionMode: "invalid"}
+			// When
+			raw, err := step.MarshalForProtocol(version)
+			// Then
+			if raw != nil || !errors.Is(err, agentproto.ErrInvalidCapability) {
+				t.Fatalf("invalid mode serialized as host: %s, %v", raw, err)
+			}
+		})
+	}
+}
+
 func TestStep_legacy_serialization_refuses_lossy_downgrades(t *testing.T) {
 	// Given
 	steps := []Step{

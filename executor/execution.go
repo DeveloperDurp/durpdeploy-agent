@@ -47,6 +47,9 @@ func (s Step) MarshalForProtocol(
 	if _, err := agentproto.ParseProtocolVersion(string(version)); err != nil {
 		return nil, err
 	}
+	if err := s.ValidateExecution(); err != nil {
+		return nil, err
+	}
 	copy := s
 	if version != agentproto.AgentV3 {
 		if s.ExecutionMode == agentproto.ExecutionContainer ||
