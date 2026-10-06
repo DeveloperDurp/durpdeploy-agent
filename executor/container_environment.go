@@ -21,13 +21,14 @@ func validVariableName(name string) bool {
 }
 
 func reservedContainerVariable(name string) bool {
-	for _, prefix := range []string{"DOCKER_", "PODMAN_", "CONTAINER_", "CONTAINERS_", "SSH_", "XDG_"} {
+	for _, prefix := range []string{"DOCKER_", "PODMAN_", "CONTAINER_", "CONTAINERS_", "SSH_", "XDG_", "LD_"} {
 		if strings.HasPrefix(name, prefix) {
 			return true
 		}
 	}
 	switch name {
-	case "HOME", "PATH", "TERM", "TMPDIR", "REGISTRY_AUTH_FILE":
+	case "HOME", "PATH", "TERM", "TMPDIR", "REGISTRY_AUTH_FILE",
+		"GODEBUG", "GOTRACEBACK", "GOMEMLIMIT", "GOMAXPROCS", "BASH_ENV", "ENV":
 		return true
 	default:
 		return false

@@ -85,10 +85,12 @@ inspected image ID. The image must contain its selected interpreter.
 
 An empty `variable_names` passes compatible resolved variables. A non-empty
 list passes only its names. Runtime-client variable prefixes (`DOCKER_`,
-`PODMAN_`, `CONTAINER_`, `CONTAINERS_`, `SSH_`, `XDG_`) and `HOME`, `PATH`,
-`TERM`, `TMPDIR`, `REGISTRY_AUTH_FILE` are excluded from default container
+`PODMAN_`, `CONTAINER_`, `CONTAINERS_`, `SSH_`, `XDG_`, `LD_`) and `HOME`, `PATH`,
+`TERM`, `TMPDIR`, `REGISTRY_AUTH_FILE`, `GODEBUG`, `GOTRACEBACK`, `GOMEMLIMIT`,
+`GOMAXPROCS`, `BASH_ENV`, `ENV` are excluded from default container
 injection and rejected in explicit selections. Secret values never enter client
-arguments. Workload output goes through the existing scrubber.
+arguments. Workload output goes through the existing scrubber. An output line
+over 1 MiB stops the step without retry; container cleanup still runs.
 
 Containers are labelled with a namespace derived from the paired agent ID.
 After every attempt, including cancellation, the agent removes the container

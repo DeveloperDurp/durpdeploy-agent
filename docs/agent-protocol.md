@@ -171,6 +171,8 @@ duplicate names, or reserved container selections fail before running the step.
 Container defaults exclude runtime-client configuration variables. Secret values
 are passed through environment entries, never command arguments, and all payload
 secrets remain in the log scrubber even when a step does not select them.
+Output lines are limited to 1 MiB. Exceeding this limit stops execution without
+retry and confirms container removal before reporting failure.
 
 Servers must use `executor.Step.MarshalForProtocol` (or an equivalent validated
 payload boundary) after capability-aware selection. It omits every v3-only field

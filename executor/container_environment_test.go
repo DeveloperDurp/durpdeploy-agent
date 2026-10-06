@@ -15,7 +15,7 @@ func TestStepEnvironment_default_container_filters_runtime_settings(
 		"DEPLOY_SECRET": "private\nvalue",
 		"NAME_2":        "value",
 	}
-	for _, name := range []string{"DOCKER_HOST", "PODMAN_CONNECTIONS_CONF", "CONTAINER_HOST", "CONTAINERS_CONF", "SSH_AUTH_SOCK", "XDG_CONFIG_HOME", "HOME", "PATH", "TERM", "TMPDIR", "REGISTRY_AUTH_FILE"} {
+	for _, name := range []string{"DOCKER_HOST", "PODMAN_CONNECTIONS_CONF", "CONTAINER_HOST", "CONTAINERS_CONF", "SSH_AUTH_SOCK", "XDG_CONFIG_HOME", "HOME", "PATH", "TERM", "TMPDIR", "REGISTRY_AUTH_FILE", "LD_PRELOAD", "LD_LIBRARY_PATH", "GODEBUG", "GOTRACEBACK", "GOMEMLIMIT", "GOMAXPROCS", "BASH_ENV", "ENV"} {
 		env[name] = "untrusted"
 	}
 	// When
@@ -50,6 +50,8 @@ func TestStepEnvironment_rejects_invalid_or_unavailable_selected_variables(
 		{"BAD-NAME", "value", false},
 		{"NAME", "bad\x00value", false},
 		{"HOME", "untrusted", true},
+		{"LD_PRELOAD", "untrusted", true},
+		{"GODEBUG", "untrusted", true},
 		{"BAD-NAME", "value", true},
 		{"NAME", "bad\x00value", true},
 	} {
