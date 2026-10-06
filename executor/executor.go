@@ -164,6 +164,7 @@ func (e *Executor) Execute(
 	writer := newRedactingWriter(NewScrubber(job.secrets), callbacks.writeLog)
 	maxAttempts := job.maxRetries + 1
 	var lastErr error
+	var imageID string
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if callbacks.cancelled != nil && callbacks.cancelled() {
 			return ErrCancelled
@@ -181,6 +182,7 @@ func (e *Executor) Execute(
 				writer,
 				callbacks,
 				attempt,
+				&imageID,
 			)
 			if lastErr != nil {
 				if logErr := writer.write(

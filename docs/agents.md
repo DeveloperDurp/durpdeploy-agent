@@ -81,7 +81,7 @@ Each step container uses a fixed Bash, PowerShell, or Python entrypoint as UID
 no new privileges, one CPU, 256 MiB memory, and at most 128 processes. It mounts
 no agent state, host directory, or runtime socket. The runner pulls missing
 images, rejects declared image volumes on both engines, and executes the
-inspected image ID. The image must contain its selected interpreter.
+inspected image ID for every retry of that step. The image must contain its selected interpreter.
 Preflight requires Docker's built-in seccomp profile or Podman's standard
 `/usr/share/containers/seccomp.json` profile on the runtime host. Every workload
 explicitly selects that profile; custom or unconfined defaults fail readiness.
@@ -98,12 +98,20 @@ injection and rejected in explicit selections. Secret values never enter client
 arguments. Workload output goes through the existing scrubber. An output line
 over 1 MiB stops the step without retry; container cleanup still runs.
 Redacted output is framed into UTF-8 log events and batches within protocol limits.
+Log uploads use the execution cancellation context and a ten-second deadline;
+an unavailable log endpoint cannot hold execution cleanup indefinitely.
 
-Containers are labelled with a namespace derived from the paired agent ID.
+Containers are labelled with a namespace derived from the agent ID, paired
+server URL and stable agent certificate fingerprint. Independent pairings do
+not share ownership labels, including when their agent IDs match.
 After every attempt, including cancellation, the agent removes the container
 and confirms absence. Cleanup uncertainty produces `cleanup_unconfirmed` and
 stops new claims and retries. Restore runtime access; reconciliation removes
-only this agent's attempts before polling resumes. Unrelated containers are
+only this agent's attempts before polling resumes. Started container claims
+retain a terminal report encrypted to the agent identity in private state.
+After a restart or reporting outage, reconciliation and acknowledged report
+delivery must both finish before polling resumes. An unreadable or rejected
+pending report blocks polling. Unrelated containers are
 never selected. The server must retain cleanup uncertainty until authenticated
 ready polling confirms reconciliation.
 

@@ -48,12 +48,15 @@ rm)
  [[ ! -e "$fixture/cleanup-fail" ]] || exit 1
  /usr/bin/rm -f "$fixture/owned" ;;
 image)
+	printf 'inspect\n' >> "$fixture/actions"
+	if [[ -e "$fixture/retagged" ]]; then printf '%%s' '[{"Id":"sha256:changed","Config":{"Volumes":null}}]'; exit; fi
  if [[ -e "$fixture/missing" && ! -e "$fixture/pulled" ]]; then exit 1; fi
  if [[ -e "$fixture/volumes" ]]; then
    printf '%%s' '[{"Id":"sha256:fixed","Config":{"Volumes":{"/unsafe":{}}}}]'
  else printf '%%s' '[{"Id":"sha256:fixed","Config":{"Volumes":null}}]'; fi ;;
 pull) printf 'pull\n' >> "$fixture/actions"; printf yes > "$fixture/pulled" ;;
 run)
+	if [[ -e "$fixture/retag" ]]; then printf yes > "$fixture/retagged"; fi
  printf 'run\n' >> "$fixture/actions"
  printf yes > "$fixture/owned"
  printf '%%s\n' "$@" > "$fixture/argv"
@@ -328,6 +331,13 @@ func TestContainer_script_exit127_preserves_configured_retries(t *testing.T) {
 			// Given
 			runner, directory := containerFixture(t, runtime)
 			if err := os.WriteFile(
+				filepath.Join(directory, "retag"),
+				nil,
+				0600,
+			); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(
 				filepath.Join(directory, "script-127"),
 				nil,
 				0600,
@@ -355,8 +365,19 @@ func TestContainer_script_exit127_preserves_configured_retries(t *testing.T) {
 				t.Fatal(err)
 			}
 			if strings.Count(string(actions), "run\n") != 3 ||
-				strings.Count(string(actions), "remove\n") != 3 {
+				strings.Count(
+					string(actions),
+					"remove\n",
+				) != 3 || strings.Count(string(actions), "inspect\n") != 1 {
 				t.Fatalf("retry/cleanup count: %s", actions)
+			}
+			args, err := os.ReadFile(filepath.Join(directory, "argv"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(args), "sha256:fixed") ||
+				strings.Contains(string(args), "sha256:changed") {
+				t.Fatal("retry followed a moved image tag")
 			}
 		})
 	}

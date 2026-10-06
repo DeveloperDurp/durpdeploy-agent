@@ -20,6 +20,7 @@ func (r *ContainerExecutor) runAttempt(
 	writer *redactingWriter,
 	callbacks Callbacks,
 	attempt int,
+	imageID *string,
 ) (result error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -33,12 +34,15 @@ func (r *ContainerExecutor) runAttempt(
 	stepCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	writer.cancel = cancel
-	imageID, err := r.prepareImage(stepCtx, job.containerImage)
-	if err != nil {
-		if stepCtx.Err() != nil {
-			return stepCtx.Err()
+	if *imageID == "" {
+		var err error
+		*imageID, err = r.prepareImage(stepCtx, job.containerImage)
+		if err != nil {
+			if stepCtx.Err() != nil {
+				return stepCtx.Err()
+			}
+			return err
 		}
-		return err
 	}
 	nonce := make([]byte, 12)
 	if _, err := rand.Read(nonce); err != nil {
@@ -84,7 +88,7 @@ func (r *ContainerExecutor) runAttempt(
 	for _, name := range names {
 		args = append(args, "--env", name)
 	}
-	args = append(args, "--entrypoint="+string(job.interpreter), imageID)
+	args = append(args, "--entrypoint="+string(job.interpreter), *imageID)
 	switch job.interpreter {
 	case InterpreterBash:
 		args = append(args, "-s")
@@ -118,7 +122,7 @@ func (r *ContainerExecutor) runAttempt(
 			defer callbacks.untrackProcessGroup()
 		}
 	}
-	err = cmd.Wait()
+	err := cmd.Wait()
 	if stepCtx.Err() != nil {
 		killProcessGroup(cmd.Process.Pid)
 	}
