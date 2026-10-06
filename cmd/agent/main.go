@@ -43,8 +43,9 @@ Do not provide server connection settings manually.
 `
 
 type claimMarker struct {
-	DeploymentID int64  `json:"deployment_id"`
-	TokenHash    string `json:"token_hash"`
+	DeploymentID  int64           `json:"deployment_id"`
+	TokenHash     string          `json:"token_hash"`
+	CleanupResult json.RawMessage `json:"cleanup_result,omitempty"`
 }
 
 func main() {
@@ -115,6 +116,9 @@ func run(ctx context.Context, configuration config) error {
 
 func runPaired(ctx context.Context, client *agentclient.Client) error {
 	for ctx.Err() == nil {
+		if err := resumeCleanupResult(ctx, client); err != nil {
+			return err
+		}
 		claim, err := client.Poll(ctx)
 		if err != nil {
 			return err
@@ -149,13 +153,15 @@ func executeClaim(
 	client *agentclient.Client,
 	claim agentproto.PollResponse,
 ) error {
-	if err := persistClaim(client, claim); err != nil {
+	if err := persistClaim(client, claim, false); err != nil {
 		return err
 	}
 	cleanupConfirmed := true
 	defer func() {
 		if cleanupConfirmed {
-			clearClaim(client)
+			if clearErr := clearClaim(client); clearErr != nil {
+				slog.Error("remove claim marker", "err", clearErr)
+			}
 		}
 	}()
 	plaintext, err := client.DecodePayload(claim)
@@ -185,11 +191,19 @@ func executeClaim(
 		return err
 	}
 	slog.Info("deployment started", "deployment_id", claim.DeploymentID)
+	for _, step := range payload.Release.Steps {
+		if step.ExecutionMode == agentproto.ExecutionContainer {
+			if err := persistClaim(client, claim, true); err != nil {
+				return err
+			}
+			break
+		}
+	}
 	executionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cancelled := false
 	var cancelMu sync.Mutex
-	logs := newLogSender(client, claim)
+	logs := newLogSender(executionCtx, client, claim)
 	heartbeatDone := make(chan struct{})
 	go func() {
 		defer close(heartbeatDone)
@@ -297,6 +311,9 @@ func executeClaim(
 		); reportErr != nil {
 			return reportErr
 		}
+		if clearErr := clearClaim(client); clearErr != nil {
+			return errors.Join(err, clearErr)
+		}
 		return err
 	}
 	if wasCancelled {
@@ -329,15 +346,23 @@ func executeClaim(
 func persistClaim(
 	client *agentclient.Client,
 	claim agentproto.PollResponse,
+	recoverCleanup bool,
 ) error {
-	// The client state directory is already private; persist only a token hash.
+	// Legacy markers retain only a hash. Started container claims also retain an
+	// encrypted terminal report before any workload can begin.
 	digest := sha256.Sum256([]byte(claim.ClaimToken))
-	contents, err := json.Marshal(
-		claimMarker{
-			DeploymentID: int64(claim.DeploymentID),
-			TokenHash:    fmt.Sprintf("%x", digest),
-		},
-	)
+	marker := claimMarker{
+		DeploymentID: int64(claim.DeploymentID),
+		TokenHash:    fmt.Sprintf("%x", digest),
+	}
+	if recoverCleanup {
+		sealed, err := client.SealCleanupReport(claim)
+		if err != nil {
+			return err
+		}
+		marker.CleanupResult = sealed
+	}
+	contents, err := json.Marshal(marker)
 	if err != nil {
 		return err
 	}
@@ -345,13 +370,52 @@ func persistClaim(
 	return writePrivateFile(path, contents)
 }
 
-func clearClaim(client *agentclient.Client) {
+func resumeCleanupResult(
+	ctx context.Context,
+	client *agentclient.Client,
+) error {
+	path := filepath.Join(client.StateDir(), claimFileName)
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read pending claim: %w", err)
+	}
+	var marker claimMarker
+	if err := json.Unmarshal(raw, &marker); err != nil {
+		return fmt.Errorf("decode pending claim: %w", err)
+	}
+	if len(marker.CleanupResult) == 0 {
+		return nil
+	}
+	if client.ContainerExecutor() == nil {
+		return fmt.Errorf(
+			"restore container configuration to reconcile pending claim: %w",
+			runner.ErrContainerCleanup,
+		)
+	}
+	if err := client.ValidateExecutionReady(ctx); err != nil {
+		return err
+	}
+	if err := client.ReportCleanup(
+		ctx,
+		agentproto.DeploymentID(marker.DeploymentID),
+		marker.CleanupResult,
+	); err != nil {
+		return err
+	}
+	return clearClaim(client)
+}
+
+func clearClaim(client *agentclient.Client) error {
 	if err := os.Remove(
 		filepath.Join(client.StateDir(), claimFileName),
 	); err != nil &&
 		!errors.Is(err, os.ErrNotExist) {
-		slog.Error("remove claim marker", "err", err)
+		return err
 	}
+	return syncClaimDirectory(client.StateDir())
 }
 
 func writePrivateFile(path string, contents []byte) (err error) {
@@ -376,8 +440,22 @@ func writePrivateFile(path string, contents []byte) (err error) {
 		_ = file.Close()
 		return err
 	}
+	if err := file.Sync(); err != nil {
+		return errors.Join(err, file.Close())
+	}
 	if err := file.Close(); err != nil {
 		return err
 	}
-	return os.Rename(temporaryPath, path)
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return err
+	}
+	return syncClaimDirectory(filepath.Dir(path))
+}
+
+func syncClaimDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	return errors.Join(directory.Sync(), directory.Close())
 }

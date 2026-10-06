@@ -135,6 +135,41 @@ func TestAgentSubprocess_sigtermKillsSpawnedChild(t *testing.T) {
 	}
 }
 
+func TestAgentSubprocess_sigterm_unblocks_retrying_log_upload(t *testing.T) {
+	// Given
+	fixture := newAgentSubprocessFixture(
+		t,
+		`for ((i=0; i<100; i++)); do echo output; done; while :; do :; done`,
+	)
+	fixture.logUnavailable = true
+	fixture.logUpload = make(chan struct{}, 1)
+	process := fixture.start(t)
+	select {
+	case <-fixture.logUpload:
+	case <-time.After(5 * time.Second):
+		t.Fatal("log batch was not uploaded")
+	}
+	// When
+	if err := process.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- process.Wait() }()
+	// Then
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(15 * time.Second):
+		if err := process.Process.Kill(); err != nil {
+			t.Error(err)
+		}
+		<-done
+		t.Fatal("cancelled agent remained blocked in log upload")
+	}
+}
+
 func TestAgentSubprocess_pollsAgainAfterStaleStart(t *testing.T) {
 	// Given
 	marker := filepath.Join(t.TempDir(), "executed")
@@ -204,6 +239,10 @@ type agentSubprocessFixture struct {
 	pollRejected       bool
 	pollBadRequestOnce bool
 	startConflict      bool
+	logUnavailable     bool
+	logUpload          chan struct{}
+	resultFailures     int
+	resultRequests     int
 	pollAgain          chan struct{}
 	pollAgainOnce      sync.Once
 	stderr             bytes.Buffer
@@ -307,6 +346,14 @@ func (fixture *agentSubprocessFixture) handle(
 		_ = json.NewEncoder(writer).
 			Encode(agentproto.PollResponse{DeploymentID: 42, Payload: string(envelope), ClaimToken: "test-claim"})
 	case "/agent/v1/deployments/42/logs":
+		if fixture.logUnavailable {
+			select {
+			case fixture.logUpload <- struct{}{}:
+			default:
+			}
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		batch, err := agentproto.DecodeLogBatch(request.Body)
 		if err != nil {
 			fixture.t.Error(err)
@@ -318,6 +365,14 @@ func (fixture *agentSubprocessFixture) handle(
 		fixture.mu.Unlock()
 		writer.WriteHeader(http.StatusNoContent)
 	case "/agent/v1/deployments/42/result":
+		fixture.mu.Lock()
+		fixture.resultRequests++
+		fail := fixture.resultRequests <= fixture.resultFailures
+		fixture.mu.Unlock()
+		if fail {
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		var result agentproto.ResultRequest
 		_ = json.NewDecoder(request.Body).Decode(&result)
 		fixture.result <- result

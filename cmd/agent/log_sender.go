@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/DeveloperDurp/durpdeploy-agent/internal/agentclient"
@@ -12,6 +13,7 @@ import (
 )
 
 type logSender struct {
+	ctx    context.Context
 	client *agentclient.Client
 	claim  agentproto.PollResponse
 	mu     sync.Mutex
@@ -20,10 +22,11 @@ type logSender struct {
 }
 
 func newLogSender(
+	ctx context.Context,
 	client *agentclient.Client,
 	claim agentproto.PollResponse,
 ) *logSender {
-	return &logSender{client: client, claim: claim, next: 1}
+	return &logSender{ctx: ctx, client: client, claim: claim, next: 1}
 }
 
 func (sender *logSender) Write(line string) error {
@@ -52,7 +55,7 @@ func (sender *logSender) Write(line string) error {
 			return err
 		}
 		if len(raw) > agentproto.MaxLogBatchBytes {
-			if err := sender.flushLocked(context.Background()); err != nil {
+			if err := sender.flushLocked(sender.ctx); err != nil {
 				return err
 			}
 			batch.Events = []agentproto.LogEvent{event}
@@ -67,7 +70,7 @@ func (sender *logSender) Write(line string) error {
 		sender.events = batch.Events
 		sender.next++
 		if len(sender.events) >= agentproto.MaxLogEvents {
-			if err := sender.flushLocked(context.Background()); err != nil {
+			if err := sender.flushLocked(sender.ctx); err != nil {
 				return err
 			}
 		}
@@ -88,6 +91,9 @@ func (sender *logSender) flushLocked(ctx context.Context) error {
 	if len(sender.events) == 0 {
 		return nil
 	}
+	// A failed upload must not hold a process's output copier or cleanup forever.
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	if err := sender.client.Logs(
 		ctx,
 		sender.claim.DeploymentID,
