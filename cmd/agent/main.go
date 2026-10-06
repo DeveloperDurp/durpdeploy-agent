@@ -82,6 +82,15 @@ func agentHelp() string {
 }
 
 func run(ctx context.Context, configuration config) error {
+	lease, err := acquireStateLease(configuration.stateDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := lease.Close(); err != nil {
+			slog.Error("release agent state lease", "err", err)
+		}
+	}()
 	for ctx.Err() == nil {
 		client, err := agentclient.NewPaired(
 			configuration.stateDir,

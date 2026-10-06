@@ -100,6 +100,7 @@ over 1 MiB stops the step without retry; container cleanup still runs.
 Redacted output is framed into UTF-8 log events and batches within protocol limits.
 Log uploads use the execution cancellation context and a ten-second deadline;
 an unavailable log endpoint cannot hold execution cleanup indefinitely.
+Log delivery failures stop execution without retrying a step's side effects.
 
 Containers are labelled with a namespace derived from the agent ID, paired
 server URL and stable agent certificate fingerprint. Independent pairings do
@@ -114,6 +115,15 @@ delivery must both finish before polling resumes. An unreadable or rejected
 pending report blocks polling. Unrelated containers are
 never selected. The server must retain cleanup uncertainty until authenticated
 ready polling confirms reconciliation.
+Recovery also requires the original runtime and socket recorded with the claim;
+changing the endpoint cannot confirm cleanup on the previous daemon. One agent
+process holds a kernel lease on its state directory across reconnects. A second
+process exits before runtime reconciliation; replacement must wait for the
+first process to stop. The persistent empty `agent.lock` file must not be removed.
+The server must acknowledge repeated cleanup reports for the same authenticated
+claim without changing the recorded result. A generic HTTP 409 cannot confirm
+whether a prior report was accepted, so the agent retains the claim and blocks
+polling until the server can acknowledge delivery.
 
 Runtime socket access gives the agent service host-equivalent authority. Host
 steps share that service UID and can also use its socket access. Use a dedicated
@@ -131,7 +141,8 @@ or the server's control-plane state directory.
 
 The **agent has no database**. Its private state directory contains only the
 agent identity certificate and key, paired server identity state, and a
-temporary hash-only current-claim marker. Keep that directory private and
+current-claim marker (a token hash plus an encrypted recovery report for started
+container work), and the empty process-lease file. Keep that directory private and
 back it up only if preserving the enrolled identity is intentional.
 
 ## Execution boundary and script responsibility
