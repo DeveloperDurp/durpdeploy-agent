@@ -2,26 +2,17 @@ package agentclient
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
-	agentpayload "github.com/DeveloperDurp/durpdeploy-agent/payload"
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
-
-type cleanupReport struct {
-	ServerURL string                   `json:"server_url"`
-	AgentID   agentproto.AgentID       `json:"agent_id"`
-	Result    agentproto.ResultRequest `json:"result"`
-}
 
 // SealCleanupReport retains claim authentication without plaintext tokens on disk.
 func (client *Client) SealCleanupReport(
 	claim agentproto.PollResponse,
 ) ([]byte, error) {
-	report := cleanupReport{
-		ServerURL: client.serverURL, AgentID: client.agentID,
-		Result: agentproto.ResultRequest{
+	return client.sealReport(claim.DeploymentID, terminalReport{
+		Result: &agentproto.ResultRequest{
 			ProtocolEnvelope: agentproto.ProtocolEnvelope{
 				Protocol: agentproto.AgentV3,
 			},
@@ -29,16 +20,7 @@ func (client *Client) SealCleanupReport(
 			State:      agentproto.ResultCleanupUnconfirmed,
 			Error:      "Container cleanup could not be confirmed. Restore runtime access; the agent will reconcile its owned attempts and report this result before polling.",
 		},
-	}
-	raw, err := json.Marshal(report)
-	if err != nil {
-		return nil, err
-	}
-	return agentpayload.Seal(
-		client.identity.Certificate.Certificate[0],
-		int64(claim.DeploymentID),
-		raw,
-	)
+	})
 }
 
 // ReportCleanup replays a sealed terminal report only to its original pairing.
@@ -59,28 +41,16 @@ func (client *Client) DecodeCleanupReport(
 	id agentproto.DeploymentID,
 	sealed []byte,
 ) (agentproto.ResultRequest, error) {
-	raw, err := agentpayload.Open(client.identity, int64(id), sealed)
+	report, err := client.decodeReport(id, sealed)
 	if err != nil {
-		return agentproto.ResultRequest{}, fmt.Errorf(
-			"open pending cleanup report: %w",
-			err,
-		)
+		return agentproto.ResultRequest{}, err
 	}
-	var report cleanupReport
-	if err := json.Unmarshal(raw, &report); err != nil {
-		return agentproto.ResultRequest{}, fmt.Errorf(
-			"decode pending cleanup report: %w",
-			err,
-		)
-	}
-	if report.ServerURL != client.serverURL ||
-		report.AgentID != client.agentID ||
+	if report.Result == nil ||
 		report.Result.Protocol != agentproto.AgentV3 ||
-		report.Result.State != agentproto.ResultCleanupUnconfirmed ||
-		report.Result.ClaimToken == "" {
+		report.Result.State != agentproto.ResultCleanupUnconfirmed {
 		return agentproto.ResultRequest{}, fmt.Errorf(
 			"pending cleanup report does not match this pairing",
 		)
 	}
-	return report.Result, nil
+	return *report.Result, nil
 }

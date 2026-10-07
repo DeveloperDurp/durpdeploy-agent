@@ -43,12 +43,14 @@ Do not provide server connection settings manually.
 `
 
 type claimMarker struct {
-	DeploymentID        int64                       `json:"deployment_id"`
-	TokenHash           string                      `json:"token_hash"`
-	CleanupResult       json.RawMessage             `json:"cleanup_result,omitempty"`
-	Runtime             agentproto.ContainerRuntime `json:"runtime,omitempty"`
-	SocketURL           string                      `json:"socket_url,omitempty"`
-	CleanupAcknowledged bool                        `json:"cleanup_acknowledged,omitempty"`
+	DeploymentID         int64                       `json:"deployment_id"`
+	TokenHash            string                      `json:"token_hash"`
+	CleanupResult        json.RawMessage             `json:"cleanup_result,omitempty"`
+	Runtime              agentproto.ContainerRuntime `json:"runtime,omitempty"`
+	SocketURL            string                      `json:"socket_url,omitempty"`
+	CleanupAcknowledged  bool                        `json:"cleanup_acknowledged,omitempty"`
+	TerminalReport       json.RawMessage             `json:"terminal_report,omitempty"`
+	TerminalAcknowledged bool                        `json:"terminal_acknowledged,omitempty"`
 }
 
 type claimPhase uint8
@@ -360,12 +362,9 @@ func executeClaim(
 			persistClaim(client, claim, claimCleanupAcknowledged),
 		)
 	}
-	// Confirmed cleanup no longer needs the conservative recovery report.
-	// Retire it durably before a result or cancellation can be acknowledged.
+	// Replace conservative cleanup state with the actual outcome before upload.
+	// A failed upload must retain the claim authentication for restart recovery.
 	clearMarker = false
-	if clearErr := clearClaim(client); clearErr != nil {
-		return errors.Join(err, clearErr)
-	}
 	if wasCancelled {
 		slog.Info(
 			"deployment execution finished",
@@ -373,11 +372,20 @@ func executeClaim(
 			"status", "cancelled",
 		)
 		ackCtx, ackCancel := context.WithTimeout(
-			context.Background(),
+			context.WithoutCancel(ctx),
 			agentproto.CancelAcknowledgementTimeout,
 		)
 		defer ackCancel()
-		return client.Cancelled(ackCtx, claim.DeploymentID, claim.ClaimToken)
+		if persistErr := persistTerminalResult(
+			client,
+			claim,
+			agentproto.CancelledRequest{
+				ClaimToken: claim.ClaimToken,
+			},
+		); persistErr != nil {
+			return persistErr
+		}
+		return resumeCleanupResult(ackCtx, client)
 	}
 	result := agentproto.ResultSucceeded
 	if err != nil {
@@ -388,8 +396,34 @@ func executeClaim(
 		"deployment_id", claim.DeploymentID,
 		"status", result,
 	)
-	return client.Result(ctx, claim.DeploymentID, agentproto.ResultRequest{
-		ClaimToken: claim.ClaimToken, State: result,
+	if persistErr := persistTerminalResult(
+		client,
+		claim,
+		agentproto.ResultRequest{
+			ClaimToken: claim.ClaimToken, State: result,
+		},
+	); persistErr != nil {
+		return errors.Join(err, persistErr)
+	}
+	return resumeCleanupResult(ctx, client)
+}
+
+func persistTerminalResult(
+	client *agentclient.Client,
+	claim agentproto.PollResponse,
+	request agentproto.Request,
+) error {
+	sealed, err := client.SealTerminalReport(claim.DeploymentID, request)
+	if err != nil {
+		return err
+	}
+	digest := sha256.Sum256([]byte(claim.ClaimToken))
+	return writeClaimMarker(client, claimMarker{
+		DeploymentID: int64(
+			claim.DeploymentID,
+		),
+		TokenHash:      fmt.Sprintf("%x", digest),
+		TerminalReport: sealed,
 	})
 }
 
@@ -445,10 +479,31 @@ func resumeCleanupResult(
 	if err := json.Unmarshal(raw, &marker); err != nil {
 		return fmt.Errorf("decode pending claim: %w", err)
 	}
+	id := agentproto.DeploymentID(marker.DeploymentID)
+	if len(marker.TerminalReport) > 0 {
+		if len(marker.CleanupResult) > 0 {
+			return fmt.Errorf(
+				"pending claim contains conflicting recovery reports",
+			)
+		}
+		request, err := client.DecodeTerminalReport(id, marker.TerminalReport)
+		if err != nil {
+			return err
+		}
+		if !marker.TerminalAcknowledged {
+			if err := client.ReportTerminal(ctx, id, request); err != nil {
+				return err
+			}
+			marker.TerminalAcknowledged = true
+			if err := writeClaimMarker(client, marker); err != nil {
+				return err
+			}
+		}
+		return clearClaim(client)
+	}
 	if len(marker.CleanupResult) == 0 {
 		return nil
 	}
-	id := agentproto.DeploymentID(marker.DeploymentID)
 	result, err := client.DecodeCleanupReport(id, marker.CleanupResult)
 	if err != nil {
 		return err

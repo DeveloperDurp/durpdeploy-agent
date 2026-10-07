@@ -117,9 +117,13 @@ never selected. The server must retain cleanup uncertainty until authenticated
 ready polling confirms reconciliation.
 An acknowledged cleanup report retains its original runtime and socket until
 reconciliation confirms cleanup. Recovery skips reports already acknowledged.
-Normal results and cancellation acknowledgements require durable removal of the
-recovery marker first. If recovery state cannot be written after start is
-acknowledged, the agent reports a terminal failure without starting a workload.
+Before ordinary results or cancellation acknowledgements are sent, the agent
+replaces the conservative cleanup report with the actual terminal request,
+encrypted to its identity. It retains that request until the server acknowledges
+delivery, and replays the original protocol and pairing after a restart. Failed
+delivery blocks polling without repeating execution. If recovery state cannot
+be written after start is acknowledged, the agent reports a terminal failure
+without starting a workload.
 Recovery also requires the original runtime and socket recorded with the claim;
 changing the endpoint cannot confirm cleanup on the previous daemon. One agent
 process holds a kernel lease on its state directory across reconnects. A second
@@ -146,8 +150,8 @@ or the server's control-plane state directory.
 
 The **agent has no database**. Its private state directory contains only the
 agent identity certificate and key, paired server identity state, and a
-current-claim marker (a token hash plus an encrypted recovery report for started
-container work), and the empty process-lease file. Keep that directory private and
+current-claim marker (a token hash plus encrypted recovery and terminal reports),
+and the empty process-lease file. Keep that directory private and
 back it up only if preserving the enrolled identity is intentional.
 
 ## Execution boundary and script responsibility
@@ -329,7 +333,8 @@ heartbeats, log uploads, and result or cancellation acknowledgements. The agent
 stores no server secret or deployment payload at rest. A current claim marker
 contains the deployment ID and a SHA-256 hash of the claim token. Started container
 claims also retain an encrypted cleanup report, its acknowledgement state, and
-the original runtime endpoint until cleanup and reporting finish.
+the original runtime endpoint until cleanup finishes. Completed claims retain
+their encrypted result or cancellation request until delivery is acknowledged.
 
 ## Binary installation
 

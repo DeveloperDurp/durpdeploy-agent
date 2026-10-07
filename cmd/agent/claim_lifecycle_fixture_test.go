@@ -48,8 +48,13 @@ info) printf '%%s' '{"OSType":"linux","MemoryLimit":true,"CpuCfsQuota":true,"Pid
 ps) if [[ -e "$fixture/owned" ]]; then printf 'owned\n'; fi ;;
 image) printf '%%s' '[{"Id":"sha256:fixed","Config":{"Volumes":null}}]' ;;
 run)
- touch "$fixture/ran" "$fixture/owned"
+ printf 'run\n' >> "$fixture/ran"
+ touch "$fixture/owned"
  printf 'ready\n'
+ if [[ -e "$fixture/run-cancel" ]]; then
+  for ((i=0; i<100; i++)); do printf 'output\n'; done
+  exec /usr/bin/sleep 30
+ fi
  if [[ -e "$fixture/run-fail" ]]; then exit 7; fi ;;
 rm)
  if [[ -e "$fixture/cleanup-fail" ]]; then exit 1; fi

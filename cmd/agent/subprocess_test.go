@@ -241,6 +241,11 @@ type agentSubprocessFixture struct {
 	startConflict      bool
 	startAcknowledged  func()
 	resultReceived     func(agentproto.ResultRequest)
+	resultRejected     func()
+	logsReceived       func()
+	cancelledStatus    int
+	cancelledRequests  int
+	cancelledReceived  func(agentproto.CancelledRequest)
 	logUnavailable     bool
 	logUpload          chan struct{}
 	resultFailures     int
@@ -318,6 +323,22 @@ func (fixture *agentSubprocessFixture) handle(
 		}
 		writer.WriteHeader(http.StatusNoContent)
 	case "/agent/v1/deployments/42/cancelled":
+		fixture.mu.Lock()
+		fixture.cancelledRequests++
+		status := fixture.cancelledStatus
+		fixture.mu.Unlock()
+		if status != 0 {
+			writer.WriteHeader(status)
+			return
+		}
+		if fixture.cancelledReceived != nil {
+			var acknowledgement agentproto.CancelledRequest
+			if err := json.NewDecoder(request.Body).
+				Decode(&acknowledgement); err != nil {
+				fixture.t.Error(err)
+			}
+			fixture.cancelledReceived(acknowledgement)
+		}
 		writer.WriteHeader(http.StatusNoContent)
 	case agentproto.PollPath:
 		fixture.mu.Lock()
@@ -368,6 +389,9 @@ func (fixture *agentSubprocessFixture) handle(
 		fixture.mu.Lock()
 		fixture.logEvents = append(fixture.logEvents, batch.Events...)
 		fixture.mu.Unlock()
+		if fixture.logsReceived != nil {
+			fixture.logsReceived()
+		}
 		writer.WriteHeader(http.StatusNoContent)
 	case "/agent/v1/deployments/42/result":
 		fixture.mu.Lock()
@@ -376,6 +400,9 @@ func (fixture *agentSubprocessFixture) handle(
 		fixture.mu.Unlock()
 		if fail {
 			writer.WriteHeader(http.StatusServiceUnavailable)
+			if fixture.resultRejected != nil {
+				fixture.resultRejected()
+			}
 			return
 		}
 		var result agentproto.ResultRequest
