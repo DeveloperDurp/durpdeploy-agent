@@ -21,7 +21,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags='-w -s' -trimpath \
 FROM docker.io/library/alpine:3.20
 
 # hadolint ignore=DL3018
-RUN apk add --no-cache bash ca-certificates && \
+RUN apk add --no-cache bash ca-certificates docker-cli podman-remote && \
+	ln -s /usr/bin/podman-remote /usr/local/bin/podman && \
 	adduser -D -H -s /sbin/nologin -u 10001 durpdeploy-agent && \
 	mkdir -p /var/lib/durpdeploy-agent /tmp && \
 	chown durpdeploy-agent:durpdeploy-agent /var/lib/durpdeploy-agent /tmp && \

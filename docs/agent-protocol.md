@@ -1,6 +1,6 @@
 # Agent protocol
 
-`agent/1` and `agent/2` are the outbound-only JSON contracts between
+`agent/1`, `agent/2`, and opt-in `agent/3` are the outbound-only JSON contracts between
 DurpDeploy and a remote agent. Version 2 adds explicit interpreter
 capabilities. This document freezes the wire vocabulary only; it adds no
 listener, database state, runner authorization, or fallback path.
@@ -10,7 +10,7 @@ listener, database state, runner authorization, or fallback path.
 All JSON requests are exactly one object and require a present, non-null
 protocol. They reject unknown fields, trailing JSON values, malformed JSON,
 and unsupported protocol values. Pairing remains `agent/1`. Paired lifecycle
-requests may use `agent/1` or `agent/2` during rollout.
+requests may use `agent/1`, `agent/2`, or `agent/3` during rollout.
 
 | Endpoint | Request contract | Notes |
 | --- | --- | --- |
@@ -126,3 +126,73 @@ payloads and never dispatch non-Bash work to a v1 agent.
 The agent's pairing state and `/agent/v1/...` endpoint paths do not change.
 Protocol versions describe request contracts; they are independent of the
 stable endpoint path namespace.
+
+## Version 3 execution capabilities and rollout
+
+Container execution is disabled by default. Enabling it selects `agent/3` for
+polling and lifecycle requests. Pairing remains `agent/1`, and pairing state is
+unchanged. An old server rejects v3 polling before issuing a claim; the agent
+does not silently downgrade to an incompatible protocol.
+
+A v3 poll contains all four non-null capability arrays:
+
+```json
+{
+  "protocol": "agent/3",
+  "agent_version": "v0.3.0",
+  "supported_interpreters": ["bash"],
+  "execution_modes": ["host", "container"],
+  "container_runtimes": ["podman"],
+  "container_interpreters": ["bash", "pwsh", "python3"]
+}
+```
+
+`supported_interpreters` describes executables installed in the host/service
+boundary. `container_interpreters` describes fixed entrypoints supported by the
+runner; the selected image must supply that executable. These lists are separate
+so a Bash-only agent image does not advertise host PowerShell or Python support.
+Modes are only `host` and `container`; runtimes are only `docker` and `podman`.
+Unknown values, duplicates, omitted/null arrays, and contradictory combinations
+are rejected. A host mode requires host interpreters; container mode requires
+both a ready runtime and container interpreters. A container-only agent reports
+an empty host interpreter array and omits `host` from its modes.
+
+Runtime preflight requires an accessible Unix socket, Linux, seccomp, and CPU,
+memory and PID cgroup limits. It reconciles containers labelled with the paired
+agent identity namespace before every poll attempt, including transport retries.
+No poll is sent while runtime access or cleanup is uncertain. The agent validates
+the complete claimed payload and rechecks readiness before start.
+
+V3 immutable steps add `execution_mode`, `container_image`, and `variable_names`.
+Missing mode means host. Host steps reject images; container steps require an
+image. Empty variable selection passes all compatible resolved variables; a
+non-empty selection passes only named variables. Missing selected variables,
+duplicate names, or reserved container selections fail before running the step.
+Container defaults exclude runtime-client configuration variables. Secret values
+are passed through environment entries, never command arguments, and all payload
+secrets remain in the log scrubber even when a step does not select them.
+Output lines are limited to 1 MiB. Exceeding this limit stops execution without
+retry and confirms container removal before reporting failure.
+The agent frames already-redacted output within the existing per-event and
+encoded-batch byte limits, preserving UTF-8 boundaries.
+
+Servers must use `executor.Step.MarshalForProtocol` (or an equivalent validated
+payload boundary) after capability-aware selection. It omits every v3-only field
+for compatible v1/v2 host work and refuses container or restricted-variable work
+for legacy protocols. V1 also refuses non-Bash work. Do not remove fields from
+incompatible work and dispatch it as a host step.
+
+The v3-only result state `cleanup_unconfirmed` is terminal and cannot be replayed.
+It takes precedence over success, failure, and cancellation acknowledgement when
+container removal cannot be confirmed. The agent retains its non-secret claim
+marker and stops polling until runtime reconciliation succeeds. The result's
+`error` contains a fixed operator action, without workload output or secrets.
+Coordinated server support must persist this state, block overlapping work, and
+use subsequent authenticated ready polling to confirm reconciliation.
+
+Upgrade all servers with the shared v3 contract, dispatch filtering, encrypted
+payload generation, and cleanup-state handling before releasing or enabling v3
+agents. Server implementation is tracked in DurpDeploy #99. Keep v1/v2 host
+support during mixed-fleet rollout. Disable container mode and remove socket
+access only after in-flight attempts and cleanup uncertainty are resolved;
+container work remains ineligible for downgraded agents.

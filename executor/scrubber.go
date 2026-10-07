@@ -49,6 +49,15 @@ func NewScrubber(secrets []string) *Scrubber {
 			continue
 		}
 		literals = append(literals, s)
+		// Logs can arrive one line at a time. Protect each non-empty component
+		// of a multiline secret as well as the complete value.
+		if strings.Contains(s, "\n") {
+			for _, line := range strings.Split(s, "\n") {
+				if line != "" {
+					literals = append(literals, line)
+				}
+			}
+		}
 	}
 	sort.Slice(literals, func(i, j int) bool {
 		return len(literals[i]) > len(literals[j])

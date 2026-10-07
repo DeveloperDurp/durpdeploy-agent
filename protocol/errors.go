@@ -3,6 +3,7 @@ package agentproto
 import "errors"
 
 var (
+	ErrInvalidCapability   = errors.New("agent protocol: invalid capability")
 	ErrUnsupportedProtocol = errors.New("agent protocol: unsupported version")
 	ErrUnknownField        = errors.New("agent protocol: unknown JSON field")
 	ErrInvalidJSON         = errors.New("agent protocol: invalid JSON")

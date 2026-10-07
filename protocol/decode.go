@@ -137,6 +137,8 @@ func decodeError(err error) error {
 	if errors.Is(err, ErrUnsupportedProtocol) ||
 		errors.Is(err, ErrInvalidResultState) ||
 		errors.Is(err, ErrInvalidInterpreter) ||
+		errors.Is(err, ErrInvalidCapability) ||
+		errors.Is(err, ErrUnknownField) ||
 		errors.Is(err, ErrInvalidJSON) {
 		return err
 	}

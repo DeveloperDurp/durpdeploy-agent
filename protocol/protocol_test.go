@@ -60,7 +60,7 @@ func TestDecodeRequest_rejects_malformed_or_extra_json(t *testing.T) {
 		},
 		{
 			name:    "unsupported protocol",
-			body:    `{"protocol":"agent/3","agent_version":"v1"}`,
+			body:    `{"protocol":"agent/4","agent_version":"v1"}`,
 			wantErr: ErrUnsupportedProtocol,
 		},
 		{
@@ -251,9 +251,16 @@ func TestPollRequest_marshal_uses_versioned_shape(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal poll: %v", err)
 			}
-			present := strings.Contains(string(encoded), "supported_interpreters")
+			present := strings.Contains(
+				string(encoded),
+				"supported_interpreters",
+			)
 			if present != test.wantPresent {
-				t.Fatalf("poll JSON = %s, capability presence = %t", encoded, present)
+				t.Fatalf(
+					"poll JSON = %s, capability presence = %t",
+					encoded,
+					present,
+				)
 			}
 			if test.wantPresent && !strings.Contains(string(encoded), `[]`) {
 				t.Fatalf("poll JSON = %s, want empty capability array", encoded)
@@ -303,7 +310,11 @@ func TestDecodeRequest_rejects_invalid_interpreter_capabilities(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := DecodeRequest[PollRequest](strings.NewReader(test.body))
 			if !errors.Is(err, test.wantErr) {
-				t.Fatalf("DecodeRequest() error = %v, want %v", err, test.wantErr)
+				t.Fatalf(
+					"DecodeRequest() error = %v, want %v",
+					err,
+					test.wantErr,
+				)
 			}
 		})
 	}

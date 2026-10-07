@@ -25,6 +25,24 @@ func (client *Client) Poll(
 			client.interpreters...,
 		),
 	}
+	if client.container != nil {
+		request.ExecutionModes = []agentproto.ExecutionMode{
+			agentproto.ExecutionContainer,
+		}
+		if len(client.interpreters) > 0 {
+			request.ExecutionModes = append(
+				[]agentproto.ExecutionMode{agentproto.ExecutionHost},
+				request.ExecutionModes...)
+		}
+		request.ContainerRuntimes = []agentproto.ContainerRuntime{
+			client.container.Runtime(),
+		}
+		request.ContainerInterpreters = []agentproto.Interpreter{
+			agentproto.InterpreterBash,
+			agentproto.InterpreterPwsh,
+			agentproto.InterpreterPython3,
+		}
+	}
 	var response agentproto.PollResponse
 	status, err := client.sendStatus(
 		ctx,

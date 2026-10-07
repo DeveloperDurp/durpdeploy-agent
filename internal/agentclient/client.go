@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"reflect"
@@ -36,6 +37,7 @@ type Client struct {
 	agentVersion agentproto.AgentVersion
 	protocol     agentproto.ProtocolVersion
 	interpreters []executor.Interpreter
+	container    *executor.ContainerExecutor
 	identity     agenttls.Identity
 	http         *http.Client
 	state        agentstate.State
@@ -49,7 +51,9 @@ type Client struct {
 
 // SupportsInterpreter reports whether the interpreter was discovered inside
 // the same execution boundary used by this client.
-func (client *Client) SupportsInterpreter(interpreter executor.Interpreter) bool {
+func (client *Client) SupportsInterpreter(
+	interpreter executor.Interpreter,
+) bool {
 	for _, supported := range client.interpreters {
 		if interpreter == supported {
 			return true
@@ -59,7 +63,14 @@ func (client *Client) SupportsInterpreter(interpreter executor.Interpreter) bool
 }
 
 // Close releases idle outbound connections. It never starts a listener.
-func (client *Client) Close() { client.http.CloseIdleConnections() }
+func (client *Client) Close() {
+	client.http.CloseIdleConnections()
+	if client.container != nil {
+		if err := client.container.Close(); err != nil {
+			slog.Warn("remove private runtime client home", "err", err)
+		}
+	}
+}
 
 // StateDir returns the private directory holding this client's identity and pins.
 func (client *Client) StateDir() string { return client.stateDir }
@@ -100,6 +111,11 @@ func (client *Client) sendStatus(
 		return 0, fmt.Errorf("encode agent request: %w", err)
 	}
 	for attempt := 0; ; attempt++ {
+		if path == agentproto.PollPath && client.container != nil {
+			if err := client.container.Ready(ctx); err != nil {
+				return 0, err
+			}
+		}
 		request, err := http.NewRequestWithContext(
 			ctx,
 			http.MethodPost,

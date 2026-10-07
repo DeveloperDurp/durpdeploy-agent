@@ -34,15 +34,32 @@ Inputs:
   DURPDEPLOY_AGENT_LISTEN_ADDR  local address used only while pairing
   DURPDEPLOY_AGENT_STATE_DIR    private persistent state directory
   DURPDEPLOY_AGENT_VERSION      agent version sent after pairing
+  DURPDEPLOY_AGENT_CONTAINER_ENABLED  enable agent/3 container execution (false)
+  DURPDEPLOY_AGENT_CONTAINER_RUNTIME  docker or podman (required when enabled)
+  DURPDEPLOY_AGENT_CONTAINER_SOCKET   absolute unix socket URL (required when enabled)
 
 Pairing stores the server URL, pinned fingerprints, and agent ID in state.
 Do not provide server connection settings manually.
 `
 
 type claimMarker struct {
-	DeploymentID int64  `json:"deployment_id"`
-	TokenHash    string `json:"token_hash"`
+	DeploymentID         int64                       `json:"deployment_id"`
+	TokenHash            string                      `json:"token_hash"`
+	CleanupResult        json.RawMessage             `json:"cleanup_result,omitempty"`
+	Runtime              agentproto.ContainerRuntime `json:"runtime,omitempty"`
+	SocketURL            string                      `json:"socket_url,omitempty"`
+	CleanupAcknowledged  bool                        `json:"cleanup_acknowledged,omitempty"`
+	TerminalReport       json.RawMessage             `json:"terminal_report,omitempty"`
+	TerminalAcknowledged bool                        `json:"terminal_acknowledged,omitempty"`
 }
+
+type claimPhase uint8
+
+const (
+	claimLegacy claimPhase = iota
+	claimCleanupPending
+	claimCleanupAcknowledged
+)
 
 func main() {
 	if len(os.Args) == 2 &&
@@ -76,6 +93,15 @@ func agentHelp() string {
 }
 
 func run(ctx context.Context, configuration config) error {
+	lease, err := acquireStateLease(configuration.stateDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := lease.Close(); err != nil {
+			slog.Error("release agent state lease", "err", err)
+		}
+	}()
 	for ctx.Err() == nil {
 		client, err := agentclient.NewPaired(
 			configuration.stateDir,
@@ -84,7 +110,12 @@ func run(ctx context.Context, configuration config) error {
 		if errors.Is(err, agentstate.ErrRePairRequired) {
 			err = runBootstrap(ctx, configuration.bootstrap)
 		} else if err == nil {
-			err = runPaired(ctx, client)
+			if configuration.containers {
+				err = client.EnableContainers(ctx, configuration.container)
+			}
+			if err == nil {
+				err = runPaired(ctx, client)
+			}
 			client.Close()
 		}
 		if ctx.Err() != nil {
@@ -107,6 +138,9 @@ func run(ctx context.Context, configuration config) error {
 
 func runPaired(ctx context.Context, client *agentclient.Client) error {
 	for ctx.Err() == nil {
+		if err := resumeCleanupResult(ctx, client); err != nil {
+			return err
+		}
 		claim, err := client.Poll(ctx)
 		if err != nil {
 			return err
@@ -141,10 +175,17 @@ func executeClaim(
 	client *agentclient.Client,
 	claim agentproto.PollResponse,
 ) error {
-	if err := persistClaim(client, claim); err != nil {
+	if err := persistClaim(client, claim, claimLegacy); err != nil {
 		return err
 	}
-	defer clearClaim(client)
+	clearMarker := true
+	defer func() {
+		if clearMarker {
+			if clearErr := clearClaim(client); clearErr != nil {
+				slog.Error("remove claim marker", "err", clearErr)
+			}
+		}
+	}()
 	plaintext, err := client.DecodePayload(claim)
 	if err != nil {
 		return err
@@ -153,7 +194,10 @@ func executeClaim(
 	if err != nil {
 		return err
 	}
-	if err := payload.validateInterpreters(client.SupportsInterpreter); err != nil {
+	if err := payload.validateExecution(client.SupportsStep); err != nil {
+		return err
+	}
+	if err := client.ValidateExecutionReady(ctx); err != nil {
 		return err
 	}
 	slog.Info(
@@ -169,11 +213,43 @@ func executeClaim(
 		return err
 	}
 	slog.Info("deployment started", "deployment_id", claim.DeploymentID)
+	for _, step := range payload.Release.Steps {
+		if step.ExecutionMode == agentproto.ExecutionContainer {
+			if err := persistClaim(
+				client,
+				claim,
+				claimCleanupPending,
+			); err != nil {
+				// Start was acknowledged, but no workload has started. Retire any
+				// partially written recovery report before sending a normal failure.
+				clearMarker = false
+				clearErr := clearClaim(client)
+				result := agentproto.ResultFailed
+				if clearErr != nil {
+					result = agentproto.ResultCleanupUnconfirmed
+				}
+				reportCtx, reportCancel := context.WithTimeout(
+					context.WithoutCancel(
+						ctx,
+					),
+					agentproto.CancelAcknowledgementTimeout,
+				)
+				defer reportCancel()
+				return errors.Join(err, clearErr, client.Result(reportCtx,
+					claim.DeploymentID, agentproto.ResultRequest{
+						ClaimToken: claim.ClaimToken,
+						State:      result,
+						Error:      "No workload was started. Claim recovery state could not be persisted; restore access to the agent state directory.",
+					}))
+			}
+			break
+		}
+	}
 	executionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cancelled := false
 	var cancelMu sync.Mutex
-	logs := newLogSender(client, claim)
+	logs := newLogSender(executionCtx, client, claim)
 	heartbeatDone := make(chan struct{})
 	go func() {
 		defer close(heartbeatDone)
@@ -207,6 +283,11 @@ func executeClaim(
 	environment, secrets, err := payload.environment()
 	if err == nil {
 		executor := newExecutor()
+		if client.ContainerExecutor() != nil {
+			executor = runner.NewExecutorWithContainers(
+				client.ContainerExecutor(),
+			)
+		}
 		err = executor.ExecuteSteps(executionCtx, runner.ExecutionConfig{
 			DeploymentID: int64(claim.DeploymentID),
 			Steps:        payload.Release.Steps,
@@ -258,6 +339,32 @@ func executeClaim(
 	wasCancelled := cancelled || errors.Is(err, runner.ErrCancelled) ||
 		ctx.Err() != nil
 	cancelMu.Unlock()
+	if errors.Is(err, runner.ErrContainerCleanup) {
+		clearMarker = false
+		reportCtx, reportCancel := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			agentproto.CancelAcknowledgementTimeout,
+		)
+		defer reportCancel()
+		if reportErr := client.Result(
+			reportCtx,
+			claim.DeploymentID,
+			agentproto.ResultRequest{
+				ClaimToken: claim.ClaimToken,
+				State:      agentproto.ResultCleanupUnconfirmed,
+				Error:      "Container cleanup could not be confirmed. Restore runtime access; the agent will reconcile its owned attempts before polling.",
+			},
+		); reportErr != nil {
+			return reportErr
+		}
+		return errors.Join(
+			err,
+			persistClaim(client, claim, claimCleanupAcknowledged),
+		)
+	}
+	// Replace conservative cleanup state with the actual outcome before upload.
+	// A failed upload must retain the claim authentication for restart recovery.
+	clearMarker = false
 	if wasCancelled {
 		slog.Info(
 			"deployment execution finished",
@@ -265,11 +372,20 @@ func executeClaim(
 			"status", "cancelled",
 		)
 		ackCtx, ackCancel := context.WithTimeout(
-			context.Background(),
+			context.WithoutCancel(ctx),
 			agentproto.CancelAcknowledgementTimeout,
 		)
 		defer ackCancel()
-		return client.Cancelled(ackCtx, claim.DeploymentID, claim.ClaimToken)
+		if persistErr := persistTerminalResult(
+			client,
+			claim,
+			agentproto.CancelledRequest{
+				ClaimToken: claim.ClaimToken,
+			},
+		); persistErr != nil {
+			return persistErr
+		}
+		return resumeCleanupResult(ackCtx, client)
 	}
 	result := agentproto.ResultSucceeded
 	if err != nil {
@@ -280,23 +396,66 @@ func executeClaim(
 		"deployment_id", claim.DeploymentID,
 		"status", result,
 	)
-	return client.Result(ctx, claim.DeploymentID, agentproto.ResultRequest{
-		ClaimToken: claim.ClaimToken, State: result,
+	if persistErr := persistTerminalResult(
+		client,
+		claim,
+		agentproto.ResultRequest{
+			ClaimToken: claim.ClaimToken, State: result,
+		},
+	); persistErr != nil {
+		return errors.Join(err, persistErr)
+	}
+	return resumeCleanupResult(ctx, client)
+}
+
+func persistTerminalResult(
+	client *agentclient.Client,
+	claim agentproto.PollResponse,
+	request agentproto.Request,
+) error {
+	sealed, err := client.SealTerminalReport(claim.DeploymentID, request)
+	if err != nil {
+		return err
+	}
+	digest := sha256.Sum256([]byte(claim.ClaimToken))
+	return writeClaimMarker(client, claimMarker{
+		DeploymentID: int64(
+			claim.DeploymentID,
+		),
+		TokenHash:      fmt.Sprintf("%x", digest),
+		TerminalReport: sealed,
 	})
 }
 
 func persistClaim(
 	client *agentclient.Client,
 	claim agentproto.PollResponse,
+	phase claimPhase,
 ) error {
-	// The client state directory is already private; persist only a token hash.
+	// Legacy markers retain only a hash. Started container claims also retain an
+	// encrypted terminal report before any workload can begin.
 	digest := sha256.Sum256([]byte(claim.ClaimToken))
-	contents, err := json.Marshal(
-		claimMarker{
-			DeploymentID: int64(claim.DeploymentID),
-			TokenHash:    fmt.Sprintf("%x", digest),
-		},
-	)
+	marker := claimMarker{
+		DeploymentID: int64(claim.DeploymentID),
+		TokenHash:    fmt.Sprintf("%x", digest),
+	}
+	switch phase {
+	case claimLegacy:
+	case claimCleanupPending, claimCleanupAcknowledged:
+		sealed, err := client.SealCleanupReport(claim)
+		if err != nil {
+			return err
+		}
+		marker.CleanupResult = sealed
+		marker.Runtime = client.ContainerExecutor().Runtime()
+		marker.SocketURL = client.ContainerExecutor().SocketURL()
+		marker.CleanupAcknowledged = phase == claimCleanupAcknowledged
+	}
+	return writeClaimMarker(client, marker)
+}
+
+func writeClaimMarker(client *agentclient.Client, marker claimMarker) error {
+	contents, err := json.Marshal(marker)
 	if err != nil {
 		return err
 	}
@@ -304,13 +463,87 @@ func persistClaim(
 	return writePrivateFile(path, contents)
 }
 
-func clearClaim(client *agentclient.Client) {
+func resumeCleanupResult(
+	ctx context.Context,
+	client *agentclient.Client,
+) error {
+	path := filepath.Join(client.StateDir(), claimFileName)
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read pending claim: %w", err)
+	}
+	var marker claimMarker
+	if err := json.Unmarshal(raw, &marker); err != nil {
+		return fmt.Errorf("decode pending claim: %w", err)
+	}
+	id := agentproto.DeploymentID(marker.DeploymentID)
+	if len(marker.TerminalReport) > 0 {
+		if len(marker.CleanupResult) > 0 {
+			return fmt.Errorf(
+				"pending claim contains conflicting recovery reports",
+			)
+		}
+		request, err := client.DecodeTerminalReport(id, marker.TerminalReport)
+		if err != nil {
+			return err
+		}
+		if !marker.TerminalAcknowledged {
+			if err := client.ReportTerminal(ctx, id, request); err != nil {
+				return err
+			}
+			marker.TerminalAcknowledged = true
+			if err := writeClaimMarker(client, marker); err != nil {
+				return err
+			}
+		}
+		return clearClaim(client)
+	}
+	if len(marker.CleanupResult) == 0 {
+		return nil
+	}
+	result, err := client.DecodeCleanupReport(id, marker.CleanupResult)
+	if err != nil {
+		return err
+	}
+	if client.ContainerExecutor() == nil {
+		return fmt.Errorf(
+			"restore container configuration to reconcile pending claim: %w",
+			runner.ErrContainerCleanup,
+		)
+	}
+	if marker.Runtime != client.ContainerExecutor().Runtime() ||
+		marker.SocketURL != client.ContainerExecutor().SocketURL() {
+		return fmt.Errorf(
+			"restore original runtime and socket to reconcile pending claim: %w",
+			runner.ErrContainerCleanup,
+		)
+	}
+	if err := client.ValidateExecutionReady(ctx); err != nil {
+		return err
+	}
+	if !marker.CleanupAcknowledged {
+		if err := client.Result(ctx, id, result); err != nil {
+			return err
+		}
+		marker.CleanupAcknowledged = true
+		if err := writeClaimMarker(client, marker); err != nil {
+			return err
+		}
+	}
+	return clearClaim(client)
+}
+
+func clearClaim(client *agentclient.Client) error {
 	if err := os.Remove(
 		filepath.Join(client.StateDir(), claimFileName),
 	); err != nil &&
 		!errors.Is(err, os.ErrNotExist) {
-		slog.Error("remove claim marker", "err", err)
+		return err
 	}
+	return syncClaimDirectory(client.StateDir())
 }
 
 func writePrivateFile(path string, contents []byte) (err error) {
@@ -335,8 +568,22 @@ func writePrivateFile(path string, contents []byte) (err error) {
 		_ = file.Close()
 		return err
 	}
+	if err := file.Sync(); err != nil {
+		return errors.Join(err, file.Close())
+	}
 	if err := file.Close(); err != nil {
 		return err
 	}
-	return os.Rename(temporaryPath, path)
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return err
+	}
+	return syncClaimDirectory(filepath.Dir(path))
+}
+
+func syncClaimDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	return errors.Join(directory.Sync(), directory.Close())
 }

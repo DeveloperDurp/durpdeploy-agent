@@ -2,13 +2,22 @@ package executor
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"strings"
 )
+
+const maxLogLineBytes = 1024 * 1024
+
+var ErrStepOutputLimit = errors.New("step output line exceeds 1 MiB")
+var ErrLogDelivery = errors.New("step log delivery failed")
 
 type redactingWriter struct {
 	scrubber *Scrubber
 	writeLog func(string) error
 	buffer   bytes.Buffer
+	cancel   context.CancelFunc
+	err      error
 }
 
 func newRedactingWriter(
@@ -19,19 +28,42 @@ func newRedactingWriter(
 }
 
 func (w *redactingWriter) Write(data []byte) (int, error) {
-	w.buffer.Write(data)
-	lastNewline := bytes.LastIndexByte(w.buffer.Bytes(), '\n')
-	if lastNewline == -1 {
-		return len(data), nil
+	if w.err != nil {
+		return 0, w.err
 	}
-	if err := w.write(w.buffer.String()[:lastNewline+1]); err != nil {
-		return 0, err
+	written := 0
+	for len(data) > 0 {
+		length := len(data)
+		newline := bytes.IndexByte(data, '\n')
+		if newline >= 0 {
+			length = newline + 1
+		}
+		if w.buffer.Len()+length > maxLogLineBytes {
+			// Discard the incomplete line: flushing a partial secret could leak it.
+			w.buffer.Reset()
+			w.err = ErrStepOutputLimit
+			if w.cancel != nil {
+				w.cancel()
+			}
+			return written, w.err
+		}
+		w.buffer.Write(data[:length])
+		written += length
+		data = data[length:]
+		if newline >= 0 {
+			if err := w.write(w.buffer.String()); err != nil {
+				return written, err
+			}
+			w.buffer.Reset()
+		}
 	}
-	w.buffer.Next(lastNewline + 1)
-	return len(data), nil
+	return written, nil
 }
 
 func (w *redactingWriter) flush() error {
+	if w.err != nil {
+		return w.err
+	}
 	if w.buffer.Len() == 0 {
 		return nil
 	}
@@ -43,6 +75,9 @@ func (w *redactingWriter) flush() error {
 }
 
 func (w *redactingWriter) write(text string) error {
+	if w.err != nil {
+		return w.err
+	}
 	if w.writeLog == nil {
 		return nil
 	}
@@ -51,7 +86,11 @@ func (w *redactingWriter) write(text string) error {
 		"\n",
 	) {
 		if err := w.writeLog(line); err != nil {
-			return err
+			w.err = errors.Join(ErrLogDelivery, err)
+			if w.cancel != nil {
+				w.cancel()
+			}
+			return w.err
 		}
 	}
 	return nil

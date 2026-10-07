@@ -37,26 +37,32 @@ func baseStepEnv() []string {
 
 // JobConfig supplies the values copied into an immutable Job.
 type JobConfig struct {
-	DeploymentID int64
-	Name         string
-	ScriptBody   string
-	Interpreter  Interpreter
-	Timeout      time.Duration
-	MaxRetries   int
-	Environment  map[string]string
-	Secrets      []string
+	ExecutionMode  agentproto.ExecutionMode
+	ContainerImage string
+	VariableNames  []string
+	DeploymentID   int64
+	Name           string
+	ScriptBody     string
+	Interpreter    Interpreter
+	Timeout        time.Duration
+	MaxRetries     int
+	Environment    map[string]string
+	Secrets        []string
 }
 
 // Job is an immutable step execution request.
 type Job struct {
-	deploymentID int64
-	name         string
-	scriptBody   string
-	interpreter  Interpreter
-	timeout      time.Duration
-	maxRetries   int
-	environment  map[string]string
-	secrets      []string
+	executionMode  agentproto.ExecutionMode
+	containerImage string
+	variableNames  []string
+	deploymentID   int64
+	name           string
+	scriptBody     string
+	interpreter    Interpreter
+	timeout        time.Duration
+	maxRetries     int
+	environment    map[string]string
+	secrets        []string
 }
 
 func NewJob(config JobConfig) Job {
@@ -65,14 +71,17 @@ func NewJob(config JobConfig) Job {
 		environment[key] = value
 	}
 	return Job{
-		deploymentID: config.DeploymentID,
-		name:         config.Name,
-		scriptBody:   config.ScriptBody,
-		interpreter:  normalizeInterpreter(config.Interpreter),
-		timeout:      config.Timeout,
-		maxRetries:   config.MaxRetries,
-		environment:  environment,
-		secrets:      slices.Clone(config.Secrets),
+		executionMode:  config.ExecutionMode,
+		containerImage: config.ContainerImage,
+		variableNames:  slices.Clone(config.VariableNames),
+		deploymentID:   config.DeploymentID,
+		name:           config.Name,
+		scriptBody:     config.ScriptBody,
+		interpreter:    normalizeInterpreter(config.Interpreter),
+		timeout:        config.Timeout,
+		maxRetries:     config.MaxRetries,
+		environment:    environment,
+		secrets:        slices.Clone(config.Secrets),
 	}
 }
 
@@ -107,6 +116,14 @@ type Executor struct {
 	sandboxErr        error
 	deadlineGrace     func()
 	killGroup         func(int)
+	container         *ContainerExecutor
+}
+
+// NewExecutorWithContainers keeps host execution inside its existing boundary.
+func NewExecutorWithContainers(container *ContainerExecutor) *Executor {
+	executor := NewExecutor()
+	executor.container = container
+	return executor
 }
 
 func NewExecutor() *Executor {
@@ -127,6 +144,18 @@ func (e *Executor) Execute(
 	if e.sandboxErr != nil {
 		return fmt.Errorf("initialize runner sandbox: %w", e.sandboxErr)
 	}
+	if err := (Step{ExecutionMode: job.executionMode, ContainerImage: job.containerImage, VariableNames: job.variableNames}).ValidateExecution(); err != nil {
+		return err
+	}
+	environment, err := selectStepEnvironment(
+		job.environment,
+		job.variableNames,
+		job.executionMode == agentproto.ExecutionContainer,
+	)
+	if err != nil {
+		return err
+	}
+	job.environment = environment
 	if _, err := agentproto.ParseInterpreter(
 		string(normalizeInterpreter(job.interpreter)),
 	); err != nil {
@@ -135,15 +164,57 @@ func (e *Executor) Execute(
 	writer := newRedactingWriter(NewScrubber(job.secrets), callbacks.writeLog)
 	maxAttempts := job.maxRetries + 1
 	var lastErr error
+	var imageID string
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		lastErr = e.runAttempt(ctx, job, writer, callbacks, attempt)
+		if callbacks.cancelled != nil && callbacks.cancelled() {
+			return ErrCancelled
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if job.executionMode == agentproto.ExecutionContainer {
+			if e.container == nil {
+				return ErrContainerUnavailable
+			}
+			lastErr = e.container.runAttempt(
+				ctx,
+				job,
+				writer,
+				callbacks,
+				attempt,
+				&imageID,
+			)
+			if lastErr != nil {
+				if logErr := writer.write(
+					fmt.Sprintf(
+						"step %q: container attempt failed: %v\n",
+						job.name,
+						lastErr,
+					),
+				); logErr != nil {
+					lastErr = errors.Join(lastErr, logErr)
+				}
+				if flushErr := writer.flush(); flushErr != nil {
+					lastErr = errors.Join(lastErr, flushErr)
+				}
+			}
+		} else {
+			lastErr = e.runAttempt(ctx, job, writer, callbacks, attempt)
+		}
 		if lastErr == nil {
 			return nil
+		}
+		if errors.Is(lastErr, ErrContainerCleanup) ||
+			errors.Is(lastErr, ErrLogDelivery) ||
+			errors.Is(lastErr, ErrStepOutputLimit) {
+			return lastErr
 		}
 		if callbacks.cancelled != nil && callbacks.cancelled() {
 			return ErrCancelled
 		}
-		if errors.Is(lastErr, ErrInterpreterUnavailable) {
+		if errors.Is(lastErr, ErrInterpreterUnavailable) ||
+			errors.Is(lastErr, ErrInvalidStepExecution) ||
+			errors.Is(lastErr, ErrContainerUnavailable) {
 			return lastErr
 		}
 		if attempt < maxAttempts {
@@ -178,6 +249,7 @@ func (e *Executor) runAttempt(
 	}
 	stepCtx, cancel := context.WithTimeout(runCtx, timeout)
 	defer cancel()
+	writer.cancel = cancel
 
 	tmpDir, err := os.MkdirTemp(
 		"",

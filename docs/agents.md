@@ -4,6 +4,142 @@ This runbook configures a DurpDeploy server and one outbound-only remote agent.
 It covers the server listener, admin pairing, agent installation, routing,
 maintenance, and recovery.
 
+## Container step execution (agent/3)
+
+Upgrade the DurpDeploy server for the v3 contract before enabling this mode.
+The default agent continues to report v2 host interpreter capabilities. Pairing
+identity and state persist across upgrades; do not re-pair just to enable v3.
+
+Explicit opt-in requires these service environment entries:
+
+```sh
+DURPDEPLOY_AGENT_CONTAINER_ENABLED=true
+DURPDEPLOY_AGENT_CONTAINER_RUNTIME=docker
+DURPDEPLOY_AGENT_CONTAINER_SOCKET=unix:///var/run/docker.sock
+```
+
+Select `podman` and its existing local Unix socket for Podman. TCP and SSH
+endpoints are rejected. Install the selected client for a native agent. The
+agent image contains both clients, but mounts no socket by default.
+
+The runtime must support Linux containers, seccomp, and CPU/memory/PID cgroup
+limits. Rootless Podman needs all three controllers delegated to its service
+user. Preflight failure is logged and blocks polling until the runtime recovers;
+the agent never disables limits to make execution proceed.
+
+### Native systemd
+
+For Docker, enable the host's Docker socket and deliberately grant the dedicated
+agent service account membership in its existing runtime socket group. Configure
+`SupplementaryGroups=docker` in a service drop-in when that is the socket group.
+For rootless Podman, run the socket under the same dedicated execution account
+as the agent and configure, for example,
+`unix:///run/user/10001/podman/podman.sock` with that account's actual UID.
+Configure user-service persistence and cgroup delegation through the host's
+normal service administration. Keep the supplied systemd hardening and
+`DURPDEPLOY_AGENT_EXECUTION_BOUNDARY=service` in place.
+
+The service account must already have permission to connect to the socket.
+The agent does not change socket owner, group, permissions, or SELinux labels.
+Use a host policy that permits the intended socket connection; do not disable
+the workload's security restrictions to work around access errors.
+
+### Agent container with a Docker socket
+
+Use the explicit override, leaving the default Compose definition socket-free:
+
+```sh
+export AGENT_RUNTIME_GID=$(stat -c %g /var/run/docker.sock)
+docker compose -f compose.example.yml -f compose.agent-docker.yml up -d
+```
+
+The agent remains non-root and receives only the existing socket group. Its
+state remains in the private named volume. A read-only socket mount prevents
+filesystem changes through that mount; it does not limit commands sent through
+the runtime API.
+
+### Agent container with a rootless Podman socket
+
+Start the socket under the dedicated execution account, then use its real path:
+
+```sh
+systemctl --user enable --now podman.socket
+export AGENT_PODMAN_SOCKET="$XDG_RUNTIME_DIR/podman/podman.sock"
+podman compose -f compose.example.yml -f compose.agent-podman.yml up -d
+```
+
+The explicit override maps the operator UID/GID to service UID/GID 10001 through
+`keep-id:uid=10001,gid=10001`, so it connects without modifying socket permissions.
+Use a fresh private named state volume
+for that identity, or deliberately migrate existing state ownership during a
+stopped upgrade. Do not delete pairing state to solve an ownership mismatch.
+
+### Workload boundary and recovery
+
+Each step container uses a fixed Bash, PowerShell, or Python entrypoint as UID
+65534, a read-only root, writable 64 MiB `/tmp`, no network, no capabilities,
+no new privileges, one CPU, 256 MiB memory, and at most 128 processes. It mounts
+no agent state, host directory, or runtime socket. The runner pulls missing
+images, rejects declared image volumes on both engines, and executes the
+inspected image ID for every retry of that step. The image must contain its selected interpreter.
+Preflight requires Docker's built-in seccomp profile or Podman's standard
+`/usr/share/containers/seccomp.json` profile on the runtime host. Every workload
+explicitly selects that profile; custom or unconfined defaults fail readiness.
+Script exit 127 follows configured retries; it cannot prove a missing entrypoint.
+PowerShell scripts are staged inside the private `/tmp` and run with `-File`
+so multiline blocks and terminating errors retain script execution semantics.
+
+An empty `variable_names` passes compatible resolved variables. A non-empty
+list passes only its names. Runtime-client variable prefixes (`DOCKER_`,
+`PODMAN_`, `CONTAINER_`, `CONTAINERS_`, `SSH_`, `XDG_`, `LD_`) and `HOME`, `PATH`,
+`TERM`, `TMPDIR`, `REGISTRY_AUTH_FILE`, `GODEBUG`, `GOTRACEBACK`, `GOMEMLIMIT`,
+`GOMAXPROCS`, `BASH_ENV`, `ENV` are excluded from default container
+injection and rejected in explicit selections. Secret values never enter client
+arguments. Workload output goes through the existing scrubber. An output line
+over 1 MiB stops the step without retry; container cleanup still runs.
+Redacted output is framed into UTF-8 log events and batches within protocol limits.
+Log uploads use the execution cancellation context and a ten-second deadline;
+an unavailable log endpoint cannot hold execution cleanup indefinitely.
+Log delivery failures stop execution without retrying a step's side effects.
+
+Containers are labelled with a namespace derived from the agent ID, paired
+server URL and stable agent certificate fingerprint. Independent pairings do
+not share ownership labels, including when their agent IDs match.
+After every attempt, including cancellation, the agent removes the container
+and confirms absence. Cleanup uncertainty produces `cleanup_unconfirmed` and
+stops new claims and retries. Restore runtime access; reconciliation removes
+only this agent's attempts before polling resumes. Started container claims
+retain a terminal report encrypted to the agent identity in private state.
+After a restart or reporting outage, reconciliation and acknowledged report
+delivery must both finish before polling resumes. An unreadable or rejected
+pending report blocks polling. Unrelated containers are
+never selected. The server must retain cleanup uncertainty until authenticated
+ready polling confirms reconciliation.
+An acknowledged cleanup report retains its original runtime and socket until
+reconciliation confirms cleanup. Recovery skips reports already acknowledged.
+Before ordinary results or cancellation acknowledgements are sent, the agent
+replaces the conservative cleanup report with the actual terminal request,
+encrypted to its identity. It retains that request until the server acknowledges
+delivery, and replays the original protocol and pairing after a restart. Failed
+delivery blocks polling without repeating execution. If recovery state cannot
+be written after start is acknowledged, the agent reports a terminal failure
+without starting a workload.
+Recovery also requires the original runtime and socket recorded with the claim;
+changing the endpoint cannot confirm cleanup on the previous daemon. One agent
+process holds a kernel lease on its state directory across reconnects. A second
+process exits before runtime reconciliation; replacement must wait for the
+first process to stop. The persistent empty `agent.lock` file must not be removed.
+The server must acknowledge repeated cleanup reports for the same authenticated
+claim without changing the recorded result. A generic HTTP 409 cannot confirm
+whether a prior report was accepted, so the agent retains the claim and blocks
+polling until the server can acknowledge delivery.
+
+Runtime socket access gives the agent service host-equivalent authority. Host
+steps share that service UID and can also use its socket access. Use a dedicated
+execution host for untrusted scripts. Workload isolation does not restrict the
+agent service itself, and the operator remains responsible for images, scripts,
+supplied secrets, and their effects inside the chosen boundary.
+
 ## Two storage boundaries
 
 The **server owns the DurpDeploy database**. SQLite, its WAL and SHM files,
@@ -14,7 +150,8 @@ or the server's control-plane state directory.
 
 The **agent has no database**. Its private state directory contains only the
 agent identity certificate and key, paired server identity state, and a
-temporary hash-only current-claim marker. Keep that directory private and
+current-claim marker (a token hash plus encrypted recovery and terminal reports),
+and the empty process-lease file. Keep that directory private and
 back it up only if preserving the enrolled identity is intentional.
 
 ## Execution boundary and script responsibility
@@ -194,8 +331,10 @@ After pairing, restart with `DURPDEPLOY_AGENT_STATE_DIR` and
 fingerprint, token, or agent ID manually. Normal work is outbound polling,
 heartbeats, log uploads, and result or cancellation acknowledgements. The agent
 stores no server secret or deployment payload at rest. A current claim marker
-contains only the deployment ID and a SHA-256 hash of the claim token and is
-removed after the claim completes.
+contains the deployment ID and a SHA-256 hash of the claim token. Started container
+claims also retain an encrypted cleanup report, its acknowledgement state, and
+the original runtime endpoint until cleanup finishes. Completed claims retain
+their encrypted result or cancellation request until delivery is acknowledged.
 
 ## Binary installation
 

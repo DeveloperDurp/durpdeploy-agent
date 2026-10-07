@@ -189,7 +189,8 @@ podman run --rm --read-only --security-opt no-new-privileges:true \
 	test ! -w /
 	command -v bash
 	! command -v curl
-	! command -v docker
+	command -v docker
+	command -v podman
 	! test -e /usr/local/bin/durpdeploy
 	! test -e /data
 	! test -S /var/run/docker.sock

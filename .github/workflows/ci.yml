@@ -18,6 +18,7 @@ jobs:
           cache: true
       - run: gofmt -l . | tee /tmp/gofmt.out && test ! -s /tmp/gofmt.out
       - run: go vet ./...
+      - run: go test -race -shuffle=on -count=1 ./protocol ./executor ./internal/agentclient ./cmd/agent
       - run: make check
       - run: make build
 
@@ -27,12 +28,42 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: make container-contract
 
+  container-executor:
+    name: Container executor (${{ matrix.runtime }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [docker, podman]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Configure local runtime and build agent image
+        env:
+          ENGINE: ${{ matrix.runtime }}
+        run: |
+          image=localhost/durpdeploy-agent:executor-contract
+          if [ "$ENGINE" = docker ]; then
+            socket=unix:///var/run/docker.sock
+            docker build -t "$image" .
+          else
+            systemctl --user start podman.socket
+            socket="unix://$XDG_RUNTIME_DIR/podman/podman.sock"
+            podman build -t "$image" .
+          fi
+          printf 'AGENT_TEST_RUNTIME=%s\nAGENT_TEST_SOCKET=%s\nAGENT_TEST_IMAGE=%s\n' \
+            "$ENGINE" "$socket" "$image" >> "$GITHUB_ENV"
+      - run: make container-executor-contract
+
   image:
     name: Build and publish image
     if: >-
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    needs: [test, container]
+    needs: [test, container, container-executor]
     runs-on: ubuntu-latest
     concurrency:
       group: agent-image-${{ github.ref }}

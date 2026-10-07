@@ -1,0 +1,11 @@
+# Explicit rootless Podman opt-in override: combine with compose.example.yml.
+# Map the socket owner to the image's service UID without changing the socket.
+services:
+  agent:
+    userns_mode: "keep-id:uid=10001,gid=10001"
+    environment:
+      DURPDEPLOY_AGENT_CONTAINER_ENABLED: "true"
+      DURPDEPLOY_AGENT_CONTAINER_RUNTIME: podman
+      DURPDEPLOY_AGENT_CONTAINER_SOCKET: unix:///run/durpdeploy/runtime.sock
+    volumes:
+      - "${AGENT_PODMAN_SOCKET:?Set the existing rootless Unix socket path}:/run/durpdeploy/runtime.sock:ro"
