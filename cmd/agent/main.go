@@ -43,12 +43,21 @@ Do not provide server connection settings manually.
 `
 
 type claimMarker struct {
-	DeploymentID  int64                       `json:"deployment_id"`
-	TokenHash     string                      `json:"token_hash"`
-	CleanupResult json.RawMessage             `json:"cleanup_result,omitempty"`
-	Runtime       agentproto.ContainerRuntime `json:"runtime,omitempty"`
-	SocketURL     string                      `json:"socket_url,omitempty"`
+	DeploymentID        int64                       `json:"deployment_id"`
+	TokenHash           string                      `json:"token_hash"`
+	CleanupResult       json.RawMessage             `json:"cleanup_result,omitempty"`
+	Runtime             agentproto.ContainerRuntime `json:"runtime,omitempty"`
+	SocketURL           string                      `json:"socket_url,omitempty"`
+	CleanupAcknowledged bool                        `json:"cleanup_acknowledged,omitempty"`
 }
+
+type claimPhase uint8
+
+const (
+	claimLegacy claimPhase = iota
+	claimCleanupPending
+	claimCleanupAcknowledged
+)
 
 func main() {
 	if len(os.Args) == 2 &&
@@ -164,12 +173,12 @@ func executeClaim(
 	client *agentclient.Client,
 	claim agentproto.PollResponse,
 ) error {
-	if err := persistClaim(client, claim, false); err != nil {
+	if err := persistClaim(client, claim, claimLegacy); err != nil {
 		return err
 	}
-	cleanupConfirmed := true
+	clearMarker := true
 	defer func() {
-		if cleanupConfirmed {
+		if clearMarker {
 			if clearErr := clearClaim(client); clearErr != nil {
 				slog.Error("remove claim marker", "err", clearErr)
 			}
@@ -204,8 +213,32 @@ func executeClaim(
 	slog.Info("deployment started", "deployment_id", claim.DeploymentID)
 	for _, step := range payload.Release.Steps {
 		if step.ExecutionMode == agentproto.ExecutionContainer {
-			if err := persistClaim(client, claim, true); err != nil {
-				return err
+			if err := persistClaim(
+				client,
+				claim,
+				claimCleanupPending,
+			); err != nil {
+				// Start was acknowledged, but no workload has started. Retire any
+				// partially written recovery report before sending a normal failure.
+				clearMarker = false
+				clearErr := clearClaim(client)
+				result := agentproto.ResultFailed
+				if clearErr != nil {
+					result = agentproto.ResultCleanupUnconfirmed
+				}
+				reportCtx, reportCancel := context.WithTimeout(
+					context.WithoutCancel(
+						ctx,
+					),
+					agentproto.CancelAcknowledgementTimeout,
+				)
+				defer reportCancel()
+				return errors.Join(err, clearErr, client.Result(reportCtx,
+					claim.DeploymentID, agentproto.ResultRequest{
+						ClaimToken: claim.ClaimToken,
+						State:      result,
+						Error:      "No workload was started. Claim recovery state could not be persisted; restore access to the agent state directory.",
+					}))
 			}
 			break
 		}
@@ -305,7 +338,7 @@ func executeClaim(
 		ctx.Err() != nil
 	cancelMu.Unlock()
 	if errors.Is(err, runner.ErrContainerCleanup) {
-		cleanupConfirmed = false
+		clearMarker = false
 		reportCtx, reportCancel := context.WithTimeout(
 			context.WithoutCancel(ctx),
 			agentproto.CancelAcknowledgementTimeout,
@@ -322,10 +355,16 @@ func executeClaim(
 		); reportErr != nil {
 			return reportErr
 		}
-		if clearErr := clearClaim(client); clearErr != nil {
-			return errors.Join(err, clearErr)
-		}
-		return err
+		return errors.Join(
+			err,
+			persistClaim(client, claim, claimCleanupAcknowledged),
+		)
+	}
+	// Confirmed cleanup no longer needs the conservative recovery report.
+	// Retire it durably before a result or cancellation can be acknowledged.
+	clearMarker = false
+	if clearErr := clearClaim(client); clearErr != nil {
+		return errors.Join(err, clearErr)
 	}
 	if wasCancelled {
 		slog.Info(
@@ -357,7 +396,7 @@ func executeClaim(
 func persistClaim(
 	client *agentclient.Client,
 	claim agentproto.PollResponse,
-	recoverCleanup bool,
+	phase claimPhase,
 ) error {
 	// Legacy markers retain only a hash. Started container claims also retain an
 	// encrypted terminal report before any workload can begin.
@@ -366,7 +405,9 @@ func persistClaim(
 		DeploymentID: int64(claim.DeploymentID),
 		TokenHash:    fmt.Sprintf("%x", digest),
 	}
-	if recoverCleanup {
+	switch phase {
+	case claimLegacy:
+	case claimCleanupPending, claimCleanupAcknowledged:
 		sealed, err := client.SealCleanupReport(claim)
 		if err != nil {
 			return err
@@ -374,7 +415,12 @@ func persistClaim(
 		marker.CleanupResult = sealed
 		marker.Runtime = client.ContainerExecutor().Runtime()
 		marker.SocketURL = client.ContainerExecutor().SocketURL()
+		marker.CleanupAcknowledged = phase == claimCleanupAcknowledged
 	}
+	return writeClaimMarker(client, marker)
+}
+
+func writeClaimMarker(client *agentclient.Client, marker claimMarker) error {
 	contents, err := json.Marshal(marker)
 	if err != nil {
 		return err
@@ -402,6 +448,11 @@ func resumeCleanupResult(
 	if len(marker.CleanupResult) == 0 {
 		return nil
 	}
+	id := agentproto.DeploymentID(marker.DeploymentID)
+	result, err := client.DecodeCleanupReport(id, marker.CleanupResult)
+	if err != nil {
+		return err
+	}
 	if client.ContainerExecutor() == nil {
 		return fmt.Errorf(
 			"restore container configuration to reconcile pending claim: %w",
@@ -418,12 +469,14 @@ func resumeCleanupResult(
 	if err := client.ValidateExecutionReady(ctx); err != nil {
 		return err
 	}
-	if err := client.ReportCleanup(
-		ctx,
-		agentproto.DeploymentID(marker.DeploymentID),
-		marker.CleanupResult,
-	); err != nil {
-		return err
+	if !marker.CleanupAcknowledged {
+		if err := client.Result(ctx, id, result); err != nil {
+			return err
+		}
+		marker.CleanupAcknowledged = true
+		if err := writeClaimMarker(client, marker); err != nil {
+			return err
+		}
 	}
 	return clearClaim(client)
 }

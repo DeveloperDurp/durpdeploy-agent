@@ -239,6 +239,8 @@ type agentSubprocessFixture struct {
 	pollRejected       bool
 	pollBadRequestOnce bool
 	startConflict      bool
+	startAcknowledged  func()
+	resultReceived     func(agentproto.ResultRequest)
 	logUnavailable     bool
 	logUpload          chan struct{}
 	resultFailures     int
@@ -311,6 +313,9 @@ func (fixture *agentSubprocessFixture) handle(
 			writer.WriteHeader(http.StatusConflict)
 			return
 		}
+		if fixture.startAcknowledged != nil {
+			fixture.startAcknowledged()
+		}
 		writer.WriteHeader(http.StatusNoContent)
 	case "/agent/v1/deployments/42/cancelled":
 		writer.WriteHeader(http.StatusNoContent)
@@ -375,6 +380,9 @@ func (fixture *agentSubprocessFixture) handle(
 		}
 		var result agentproto.ResultRequest
 		_ = json.NewDecoder(request.Body).Decode(&result)
+		if fixture.resultReceived != nil {
+			fixture.resultReceived(result)
+		}
 		fixture.result <- result
 		writer.WriteHeader(http.StatusNoContent)
 	case "/agent/v1/deployments/42/heartbeat":

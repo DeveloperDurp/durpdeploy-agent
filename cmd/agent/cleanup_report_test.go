@@ -19,16 +19,23 @@ import (
 func TestRunPaired_replays_encrypted_cleanup_before_polling_after_restart(
 	t *testing.T,
 ) {
-	testCleanupReplay(t, "")
+	testCleanupReplay(t, "", claimCleanupPending)
 }
 
 func TestCleanupReplay_rejects_changed_runtime_endpoint(t *testing.T) {
 	for _, change := range []string{"socket", "runtime"} {
-		t.Run(change, func(t *testing.T) { testCleanupReplay(t, change) })
+		t.Run(
+			change,
+			func(t *testing.T) { testCleanupReplay(t, change, claimCleanupPending) },
+		)
+		t.Run(
+			change+"-acknowledged",
+			func(t *testing.T) { testCleanupReplay(t, change, claimCleanupAcknowledged) },
+		)
 	}
 }
 
-func testCleanupReplay(t *testing.T, change string) {
+func testCleanupReplay(t *testing.T, change string, phase claimPhase) {
 	t.Helper()
 	// Given
 	fixture := newAgentSubprocessFixture(t, "exit 0")
@@ -85,7 +92,7 @@ esac
 	if err := persistClaim(
 		client,
 		agentproto.PollResponse{DeploymentID: 42, ClaimToken: "test-claim"},
-		true,
+		phase,
 	); err != nil {
 		t.Fatal(err)
 	}

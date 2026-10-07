@@ -115,6 +115,11 @@ delivery must both finish before polling resumes. An unreadable or rejected
 pending report blocks polling. Unrelated containers are
 never selected. The server must retain cleanup uncertainty until authenticated
 ready polling confirms reconciliation.
+An acknowledged cleanup report retains its original runtime and socket until
+reconciliation confirms cleanup. Recovery skips reports already acknowledged.
+Normal results and cancellation acknowledgements require durable removal of the
+recovery marker first. If recovery state cannot be written after start is
+acknowledged, the agent reports a terminal failure without starting a workload.
 Recovery also requires the original runtime and socket recorded with the claim;
 changing the endpoint cannot confirm cleanup on the previous daemon. One agent
 process holds a kernel lease on its state directory across reconnects. A second
@@ -322,8 +327,9 @@ After pairing, restart with `DURPDEPLOY_AGENT_STATE_DIR` and
 fingerprint, token, or agent ID manually. Normal work is outbound polling,
 heartbeats, log uploads, and result or cancellation acknowledgements. The agent
 stores no server secret or deployment payload at rest. A current claim marker
-contains only the deployment ID and a SHA-256 hash of the claim token and is
-removed after the claim completes.
+contains the deployment ID and a SHA-256 hash of the claim token. Started container
+claims also retain an encrypted cleanup report, its acknowledgement state, and
+the original runtime endpoint until cleanup and reporting finish.
 
 ## Binary installation
 

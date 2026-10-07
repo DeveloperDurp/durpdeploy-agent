@@ -47,20 +47,40 @@ func (client *Client) ReportCleanup(
 	id agentproto.DeploymentID,
 	sealed []byte,
 ) error {
+	result, err := client.DecodeCleanupReport(id, sealed)
+	if err != nil {
+		return err
+	}
+	return client.lifecycle(ctx, agentproto.ResultPath, id, result)
+}
+
+// DecodeCleanupReport authenticates recovery state, including acknowledged reports.
+func (client *Client) DecodeCleanupReport(
+	id agentproto.DeploymentID,
+	sealed []byte,
+) (agentproto.ResultRequest, error) {
 	raw, err := agentpayload.Open(client.identity, int64(id), sealed)
 	if err != nil {
-		return fmt.Errorf("open pending cleanup report: %w", err)
+		return agentproto.ResultRequest{}, fmt.Errorf(
+			"open pending cleanup report: %w",
+			err,
+		)
 	}
 	var report cleanupReport
 	if err := json.Unmarshal(raw, &report); err != nil {
-		return fmt.Errorf("decode pending cleanup report: %w", err)
+		return agentproto.ResultRequest{}, fmt.Errorf(
+			"decode pending cleanup report: %w",
+			err,
+		)
 	}
 	if report.ServerURL != client.serverURL ||
 		report.AgentID != client.agentID ||
 		report.Result.Protocol != agentproto.AgentV3 ||
 		report.Result.State != agentproto.ResultCleanupUnconfirmed ||
 		report.Result.ClaimToken == "" {
-		return fmt.Errorf("pending cleanup report does not match this pairing")
+		return agentproto.ResultRequest{}, fmt.Errorf(
+			"pending cleanup report does not match this pairing",
+		)
 	}
-	return client.lifecycle(ctx, agentproto.ResultPath, id, report.Result)
+	return report.Result, nil
 }
