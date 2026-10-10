@@ -37,7 +37,7 @@ func TestAgentContainerLive_executes_steps_through_mounted_socket(
 	}
 	fixture := newAgentSubprocessFixture(
 		t,
-		`printf 'container-agent\n'; printf '%s\n' "$SECRET"; printf '%20000s\n' x; test ! -e /run/durpdeploy/runtime.sock`,
+		`printf 'inspect-resources:%s\n' "$(hostname)"; while [ ! -e /tmp/resources-checked ]; do sleep 0.1; done; printf 'container-agent\n'; printf '%s\n' "$SECRET"; printf '%20000s\n' x; test ! -e /run/durpdeploy/runtime.sock`,
 	)
 	fixture.payload.Release.Steps[0].ExecutionMode = agentproto.ExecutionContainer
 	fixture.payload.Release.Steps[0].ContainerImage = "docker.io/library/bash:5.2"
@@ -53,6 +53,11 @@ func TestAgentContainerLive_executes_steps_through_mounted_socket(
 	polls := make(chan agentproto.PollRequest, 2)
 	server := httptest.NewUnstartedServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := verifyContainerResourceLogs(r, runtime, socket.String()); err != nil {
+				t.Error(err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 			if r.URL.Path == agentproto.PollPath {
 				raw, err := io.ReadAll(r.Body)
 				if err != nil {

@@ -158,7 +158,13 @@ both a ready runtime and container interpreters. A container-only agent reports
 an empty host interpreter array and omits `host` from its modes.
 
 Runtime preflight requires an accessible Unix socket, Linux, seccomp, and CPU,
-memory and PID cgroup limits. It reconciles containers labelled with the paired
+memory and PID cgroup support. Container steps request no per-step RAM ceiling
+or CPU quota, including retries; applicable external limits still govern them.
+They retain the 128-process limit, read-only root, bounded 64 MiB tmpfs, non-root
+user, network isolation, dropped capabilities, and seccomp policy. Operators must
+provide external resource policy because a step can consume more host RAM and CPU.
+Agent service and host-mode limits are unchanged.
+Runtime preflight reconciles containers labelled with the paired
 agent identity namespace before every poll attempt, including transport retries.
 No poll is sent while runtime access or cleanup is uncertain. The agent validates
 the complete claimed payload and rechecks readiness before start.

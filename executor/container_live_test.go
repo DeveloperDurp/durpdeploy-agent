@@ -54,7 +54,7 @@ func TestContainerLive_interpreters_receive_selected_variables(t *testing.T) {
 		{
 			InterpreterBash,
 			"docker.io/library/bash:5.2",
-			`printf '%s\n' "$REGION" "$DEPLOY_SECRET" "${UNRELATED-unset}"; test "$(id -u)" = 65534; test ! -w /usr; test ! -e /var/run/docker.sock; test "$(cat /sys/fs/cgroup/memory.max)" = 268435456; test "$(cat /sys/fs/cgroup/pids.max)" = 128; test "$(cat /sys/fs/cgroup/cpu.max)" = '100000 100000'; grep -q '^CapEff:.*0000000000000000' /proc/self/status; grep -q '^NoNewPrivs:.*1' /proc/self/status; grep -q '^Seccomp:.*2' /proc/self/status`,
+			`printf '%s\n' "$REGION" "$DEPLOY_SECRET" "${UNRELATED-unset}"; test "$(id -u)" = 65534; test ! -w /usr; test ! -e /var/run/docker.sock; test "$(cat /sys/fs/cgroup/pids.max)" = 128; grep -q '^CapEff:.*0000000000000000' /proc/self/status; grep -q '^NoNewPrivs:.*1' /proc/self/status; grep -q '^Seccomp:.*2' /proc/self/status`,
 		},
 		{
 			InterpreterPython3,

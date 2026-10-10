@@ -68,7 +68,7 @@ func (r *ContainerExecutor) runAttempt(
 		"--security-opt=no-new-privileges", "--user=65534:65534",
 		"--tmpfs=/tmp:rw,nosuid,nodev,size=64m,mode=1777",
 		"--env=HOME=/tmp", "--env=TERM=dumb", "--workdir=/tmp",
-		"--pids-limit=128", "--memory=256m", "--cpus=1", "--log-driver=none"}
+		"--pids-limit=128", "--log-driver=none"}
 	if r.runtime == agentproto.RuntimePodman {
 		args = append(
 			args,
