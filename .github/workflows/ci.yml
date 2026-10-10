@@ -57,6 +57,26 @@ jobs:
           printf 'AGENT_TEST_RUNTIME=%s\nAGENT_TEST_SOCKET=%s\nAGENT_TEST_IMAGE=%s\n' \
             "$ENGINE" "$socket" "$image" >> "$GITHUB_ENV"
       - run: make container-executor-contract
+      - name: Check out the server API contract fixture
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: DeveloperDurp/DurpDeploy
+          ref: f10bf4a5674202bc5a023129e0311b3b752b072a
+          path: server-api-contract
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.26.9'
+          cache: true
+          cache-dependency-path: server-api-contract/go.sum
+      - name: Prepare server API assets
+        working-directory: server-api-contract
+        run: |
+          go tool templ generate
+          make swagger-ui-copy
+      - name: Verify remote container deployments through the public API
+        working-directory: server-api-contract
+        run: go test -tags=e2e,agentcontainer -race -count=1 -timeout=8m -v -run '^TestAgentContainerAPIE2E$' ./internal/agentserver
 
   image:
     name: Build and publish image
