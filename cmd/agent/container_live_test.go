@@ -4,7 +4,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -35,9 +34,11 @@ func TestAgentContainerLive_executes_steps_through_mounted_socket(
 	if err != nil || socket.Scheme != "unix" {
 		t.Fatal("set AGENT_TEST_SOCKET")
 	}
+	// Fill a log batch before waiting: short output otherwise uploads only after
+	// execution completes, which would deadlock the runtime inspection handshake.
 	fixture := newAgentSubprocessFixture(
 		t,
-		`printf 'container-agent\n'; printf '%s\n' "$SECRET"; printf '%20000s\n' x; test ! -e /run/durpdeploy/runtime.sock`,
+		`printf 'inspect-resources:%s\n' "$(hostname)"; for ((i=0; i<100; i++)); do echo resource-check-padding; done; while [ ! -e /tmp/resources-checked ]; do sleep 0.1; done; printf 'container-agent\n'; printf '%s\n' "$SECRET"; printf '%20000s\n' x; test ! -e /run/durpdeploy/runtime.sock`,
 	)
 	fixture.payload.Release.Steps[0].ExecutionMode = agentproto.ExecutionContainer
 	fixture.payload.Release.Steps[0].ContainerImage = "docker.io/library/bash:5.2"
@@ -53,6 +54,11 @@ func TestAgentContainerLive_executes_steps_through_mounted_socket(
 	polls := make(chan agentproto.PollRequest, 2)
 	server := httptest.NewUnstartedServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := fixture.verifyContainerResourceLogs(r, runtime, socket.String()); err != nil {
+				t.Error(err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 			if r.URL.Path == agentproto.PollPath {
 				raw, err := io.ReadAll(r.Body)
 				if err != nil {
@@ -84,10 +90,9 @@ func TestAgentContainerLive_executes_steps_through_mounted_socket(
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.TLS = &tls.Config{
-		Certificates: []tls.Certificate{fixture.serverID.Certificate},
-		MinVersion:   tls.VersionTLS13,
-		ClientAuth:   tls.RequestClientCert,
+	server.TLS, err = agenttls.NewServerConfig(fixture.serverID, "127.0.0.1", fixture.identity.Fingerprint)
+	if err != nil {
+		t.Fatal(err)
 	}
 	server.StartTLS()
 	t.Cleanup(server.Close)

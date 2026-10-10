@@ -25,7 +25,7 @@ agent image contains both clients, but mounts no socket by default.
 The runtime must support Linux containers, seccomp, and CPU/memory/PID cgroup
 limits. Rootless Podman needs all three controllers delegated to its service
 user. Preflight failure is logged and blocks polling until the runtime recovers;
-the agent never disables limits to make execution proceed.
+the agent never disables required isolation controls to make execution proceed.
 
 ### Native systemd
 
@@ -78,8 +78,14 @@ stopped upgrade. Do not delete pairing state to solve an ownership mismatch.
 
 Each step container uses a fixed Bash, PowerShell, or Python entrypoint as UID
 65534, a read-only root, writable 64 MiB `/tmp`, no network, no capabilities,
-no new privileges, one CPU, 256 MiB memory, and at most 128 processes. It mounts
-no agent state, host directory, or runtime socket. The runner pulls missing
+no new privileges, and at most 128 processes. The agent imposes no per-step RAM
+ceiling or CPU quota, including on retries. Applicable host, runtime, and parent
+cgroup limits still govern execution. A step can consume more host RAM and CPU;
+the operator is responsible for external resource policy. Step containers created
+through the runtime socket may run outside the agent service's own cgroup, so
+the service's CPU and memory limits do not necessarily constrain these workloads.
+The service limits and the step's PID limit and tmpfs capacity remain in place.
+Each step mounts no agent state, host directory, or runtime socket. The runner pulls missing
 images, rejects declared image volumes on both engines, and executes the
 inspected image ID for every retry of that step. The image must contain its selected interpreter.
 Preflight requires Docker's built-in seccomp profile or Podman's standard

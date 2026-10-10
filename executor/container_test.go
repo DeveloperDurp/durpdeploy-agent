@@ -59,7 +59,7 @@ run)
 	if [[ -e "$fixture/retag" ]]; then printf yes > "$fixture/retagged"; fi
  printf 'run\n' >> "$fixture/actions"
  printf yes > "$fixture/owned"
- printf '%%s\n' "$@" > "$fixture/argv"
+ printf '%%s\n' "$@" > "$fixture/argv"; printf '%%s\0' "$@" >> "$fixture/argv-history"; printf '\0' >> "$fixture/argv-history"
  if [[ -e "$fixture/missing-interpreter" ]]; then exit 127; fi
  if [[ -e "$fixture/run-fail" ]]; then exit 7; fi
  if [[ -e "$fixture/pwsh" ]]; then
@@ -210,7 +210,7 @@ func TestContainer_execution_selects_variables_and_redacts_logs(t *testing.T) {
 				strings.Contains(string(args), "other") {
 				t.Fatal("values exposed in arguments")
 			}
-			for _, required := range []string{"--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--user=65534:65534", "--memory=256m", "--cpus=1", "--pids-limit=128", "sha256:fixed"} {
+			for _, required := range []string{"--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--user=65534:65534", "--pids-limit=128", "sha256:fixed"} {
 				if !strings.Contains(string(args), required) {
 					t.Fatalf("missing isolation option %s", required)
 				}
