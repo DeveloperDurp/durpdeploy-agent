@@ -43,7 +43,7 @@ func persistHostStagingCleanup(
 func (s *jobStaging) recordRoots() error {
 	s.recoveryRoots = nil
 	base := ""
-	for _, root := range []*os.Root{s.root, s.workspace} {
+	for _, root := range []*os.File{s.root, s.workspace} {
 		if root == nil {
 			continue
 		}

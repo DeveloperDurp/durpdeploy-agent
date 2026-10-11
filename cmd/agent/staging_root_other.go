@@ -8,8 +8,12 @@ import (
 	"github.com/DeveloperDurp/durpdeploy-agent/internal/staging"
 )
 
-func captureStagingRoot(*os.Root) (*stagingRootRecord, error) {
+func captureStagingRoot(*os.File) (*stagingRootRecord, error) {
 	return nil, staging.ErrInvalid
+}
+
+func purgeStagingHandle(*os.File) error {
+	return staging.ErrInvalid
 }
 
 func purgeRecoveredStagingRoot(record *stagingRootRecord) error {

@@ -13,23 +13,16 @@ import (
 )
 
 func captureStagingRoot(
-	root *os.Root,
+	file *os.File,
 ) (record *stagingRootRecord, result error) {
-	if err := root.Chmod(".", 0700); errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	} else if err != nil {
+	if err := file.Chmod(0700); err != nil {
 		return nil, err
 	}
-	file, err := root.Open(".")
-	if err != nil {
-		return nil, err
-	}
-	defer func() { result = errors.Join(result, file.Close()) }()
 	info, err := file.Stat()
 	if err != nil {
 		return nil, err
 	}
-	current, err := os.Lstat(root.Name())
+	current, err := os.Lstat(file.Name())
 	if err == nil && os.SameFile(info, current) {
 		return nil, nil
 	}
@@ -45,6 +38,17 @@ func captureStagingRoot(
 		return nil, err
 	}
 	return &stagingRootRecord{path, uint64(identity.Dev), identity.Ino}, nil
+}
+
+func purgeStagingHandle(file *os.File) error {
+	if err := file.Chmod(0700); err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(fmt.Sprintf("/proc/self/fd/%d", file.Fd()))
+	if err != nil {
+		return err
+	}
+	return errors.Join(staging.PurgeRoot(root), root.Close())
 }
 
 func purgeRecoveredStagingRoot(record *stagingRootRecord) (result error) {

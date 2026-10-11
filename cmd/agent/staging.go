@@ -17,8 +17,8 @@ type jobStaging struct {
 	directory     string
 	parent        string
 	original      os.FileInfo
-	root          *os.Root
-	workspace     *os.Root
+	root          *os.File
+	workspace     *os.File
 	recoveryRoots []*stagingRootRecord
 	container     *runner.ContainerStage
 	input         *os.File
@@ -44,7 +44,7 @@ func newJobStaging(
 		directory: filepath.Join(parent, "workspace"),
 		parent:    parent, input: input,
 	}
-	stage.root, err = os.OpenRoot(filepath.Join(client.StateDir(), "staging"))
+	stage.root, err = os.Open(filepath.Join(client.StateDir(), "staging"))
 	if err != nil {
 		return stage, err
 	}
@@ -53,7 +53,7 @@ func newJobStaging(
 	}
 	stage.original, err = os.Lstat(stage.directory)
 	if err == nil {
-		stage.workspace, err = os.OpenRoot(stage.directory)
+		stage.workspace, err = os.Open(stage.directory)
 	}
 	return stage, err
 }
@@ -130,11 +130,11 @@ func (s *jobStaging) close(
 		result = errors.Join(result, runner.ErrContainerCleanup, err)
 	}
 	// Both handles retain owned files when a script moves either directory.
-	for _, root := range []*os.Root{s.workspace, s.root} {
+	for _, root := range []*os.File{s.workspace, s.root} {
 		if root == nil {
 			continue
 		}
-		if err := staging.PurgeRoot(root); err != nil {
+		if err := purgeStagingHandle(root); err != nil {
 			result = errors.Join(result, runner.ErrContainerCleanup, err)
 		}
 		result = errors.Join(result, root.Close())

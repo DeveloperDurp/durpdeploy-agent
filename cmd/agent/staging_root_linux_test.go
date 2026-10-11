@@ -20,13 +20,13 @@ func TestRecoveredStagingRootOwnership(t *testing.T) {
 			if err := os.Mkdir(original, 0700); err != nil {
 				t.Fatal(err)
 			}
-			root, err := os.OpenRoot(original)
+			root, err := os.Open(original)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer root.Close()
-			if err := root.WriteFile(
-				"data",
+			if err := os.WriteFile(
+				filepath.Join(original, "data"),
 				[]byte("owned"),
 				0600,
 			); err != nil {
