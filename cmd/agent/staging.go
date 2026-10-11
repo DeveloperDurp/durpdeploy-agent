@@ -17,6 +17,7 @@ type jobStaging struct {
 	directory string
 	parent    string
 	original  os.FileInfo
+	root      *os.Root
 	container *runner.ContainerStage
 	input     *os.File
 }
@@ -40,6 +41,10 @@ func newJobStaging(
 	stage := &jobStaging{
 		directory: filepath.Join(parent, "workspace"),
 		parent:    parent, input: input,
+	}
+	stage.root, err = os.OpenRoot(filepath.Join(client.StateDir(), "staging"))
+	if err != nil {
+		return stage, err
 	}
 	if err := os.Mkdir(stage.directory, 0700); err != nil {
 		return stage, err
@@ -116,7 +121,14 @@ func (s *jobStaging) close(
 	if s.container != nil {
 		result = s.container.Close(ctx)
 	}
-	// Claims execute serially, so purge workspaces moved within the staging root.
+	// The handle retains the owned tree when a script renames its root.
+	if s.root != nil {
+		if err := staging.PurgeRoot(s.root); err != nil {
+			result = errors.Join(result, runner.ErrContainerCleanup, err)
+		}
+		result = errors.Join(result, s.root.Close())
+	}
+	// Claims execute serially, so purge replacement trees before polling.
 	if err := client.ResetStaging(); err != nil {
 		result = errors.Join(result, runner.ErrContainerCleanup, err)
 	}

@@ -38,6 +38,7 @@ func stagingArchive(t *testing.T) []byte {
 func TestStagingTransfersRetryAndKeepArchivesPrivate(t *testing.T) {
 	archive := stagingArchive(t)
 	identity := testIdentity(t)
+	now := time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)
 	downloads, uploads := 0, 0
 	server := newTLSServer(
 		t,
@@ -51,6 +52,7 @@ func TestStagingTransfersRetryAndKeepArchivesPrivate(t *testing.T) {
 			case "/agent/v1/deployments/42/staging/download":
 				downloads++
 				if downloads == 1 {
+					w.Header().Set("Retry-After", "5")
 					w.WriteHeader(http.StatusServiceUnavailable)
 					return
 				}
@@ -68,6 +70,8 @@ func TestStagingTransfersRetryAndKeepArchivesPrivate(t *testing.T) {
 					t.Errorf("upload differs from downloaded archive: %v", err)
 				}
 				if uploads == 1 {
+					w.Header().
+						Set("Retry-After", now.Add(time.Minute).Format(http.TimeFormat))
 					w.WriteHeader(http.StatusTooManyRequests)
 					return
 				}
@@ -79,7 +83,12 @@ func TestStagingTransfersRetryAndKeepArchivesPrivate(t *testing.T) {
 		},
 	)
 	client := testClient(t, server.URL, identity.Fingerprint.String())
-	client.sleep = func(context.Context, time.Duration) error { return nil }
+	client.now = func() time.Time { return now }
+	var delays []time.Duration
+	client.sleep = func(_ context.Context, delay time.Duration) error {
+		delays = append(delays, delay)
+		return nil
+	}
 	claim := agentproto.PollResponse{
 		DeploymentID: 42,
 		ClaimToken:   "claim-secret",
@@ -101,6 +110,10 @@ func TestStagingTransfersRetryAndKeepArchivesPrivate(t *testing.T) {
 	}
 	if downloads != 2 || uploads != 2 {
 		t.Fatalf("downloads=%d uploads=%d", downloads, uploads)
+	}
+	if len(delays) != 2 || delays[0] != 5*time.Second ||
+		delays[1] != time.Minute {
+		t.Fatalf("ignored Retry-After: %v", delays)
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -60,28 +59,40 @@ func waitHostChildren(ctx context.Context, root int) (int, error) {
 }
 
 func killHostChildren() error {
-	tasks, err := filepath.Glob("/proc/self/task/*/children")
-	if err != nil || len(tasks) == 0 {
-		return errors.Join(ErrHostProcessCleanup, err)
+	processes, err := os.ReadDir("/proc")
+	if err != nil {
+		return fmt.Errorf("list host processes: %w", err)
 	}
-	for _, task := range tasks {
-		data, err := os.ReadFile(task)
-		if errors.Is(err, os.ErrNotExist) {
+	parent := strconv.Itoa(os.Getpid())
+	for _, process := range processes {
+		pid, err := strconv.Atoi(process.Name())
+		if err != nil || pid <= 0 || !process.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile("/proc/" + process.Name() + "/stat")
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("read host children: %w", err)
+			return fmt.Errorf("read host process: %w", err)
 		}
-		for _, child := range strings.Fields(string(data)) {
-			pid, err := strconv.Atoi(child)
-			if err != nil || pid <= 0 {
-				return errors.Join(ErrHostProcessCleanup, err)
-			}
-			// Children cannot reuse their PIDs until this worker reaps them.
-			if err := syscall.Kill(pid, syscall.SIGKILL); err != nil &&
-				!errors.Is(err, syscall.ESRCH) {
-				return fmt.Errorf("stop host child: %w", err)
-			}
+		// The command name can contain spaces or parentheses. PPID follows
+		// the final closing parenthesis and the process state field.
+		end := strings.LastIndexByte(string(data), ')')
+		if end < 0 {
+			return ErrHostProcessCleanup
+		}
+		fields := strings.Fields(string(data[end+1:]))
+		if len(fields) < 2 {
+			return ErrHostProcessCleanup
+		}
+		if fields[1] != parent {
+			continue
+		}
+		// Children cannot reuse their PIDs until this worker reaps them.
+		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil &&
+			!errors.Is(err, syscall.ESRCH) {
+			return fmt.Errorf("stop host child: %w", err)
 		}
 	}
 	return nil

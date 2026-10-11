@@ -175,7 +175,7 @@ func executeClaim(
 	}
 	if stage != nil && errors.Is(err, runner.ErrHostProcessCleanup) {
 		// A failed supervisor requires service-wide process cleanup on restart.
-		err = errors.Join(err, stage.input.Close())
+		err = errors.Join(err, stage.input.Close(), stage.root.Close())
 	} else if stage != nil {
 		err = errors.Join(
 			err,

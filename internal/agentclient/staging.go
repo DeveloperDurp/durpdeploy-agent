@@ -72,11 +72,15 @@ func (client *Client) Staging(
 			return nil, errors.Join(err, response.Body.Close())
 		}
 		if retryableStatus(response.StatusCode) {
+			retryAfter := parseRetryAfter(
+				response.Header.Get("Retry-After"),
+				client.now(),
+			)
 			closeErr := response.Body.Close()
 			if closeErr != nil {
 				return nil, closeErr
 			}
-			if err := client.wait(ctx, attempt, 0); err != nil {
+			if err := client.wait(ctx, attempt, retryAfter); err != nil {
 				return nil, err
 			}
 			continue
