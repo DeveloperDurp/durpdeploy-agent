@@ -107,8 +107,7 @@ func (payload deploymentPayload) environment() (map[string]string, []string, err
 	environment := make(map[string]string, len(payload.Variables))
 	secrets := make([]string, 0, len(payload.Variables))
 	for _, variable := range payload.Variables {
-		if variable.Name == "DURPDEPLOY_STAGE_DIR" ||
-			variable.Name == "DURPDEPLOY_APPROVED_DIR" {
+		if payload.Release.Staging && variable.Name == "DURPDEPLOY_STAGE_DIR" {
 			return nil, nil, errors.New("reserved deployment variable")
 		}
 		if variable.Name == "" {
