@@ -34,8 +34,8 @@ func TestRecoveredStagingRootOwnership(t *testing.T) {
 			}
 			if record, err := captureStagingRoot(
 				root,
-			); record != nil ||
-				err != nil {
+			); record == nil || err != nil || record.Path != original ||
+				record.Inode == 0 {
 				t.Fatalf("unmoved root: %v %v", record, err)
 			}
 			if err := os.Rename(original, retained); err != nil {
@@ -104,5 +104,59 @@ func TestRecoveredStagingRootOwnership(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPreRecordedStagingMoveBlocksRecoveryUntilRestored(t *testing.T) {
+	base := t.TempDir()
+	original, retained := filepath.Join(
+		base,
+		"staging",
+	), filepath.Join(
+		base,
+		"retained",
+	)
+	if err := os.Mkdir(original, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(original, "data"),
+		[]byte("owned"),
+		0600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.Open(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	record, err := captureStagingRoot(root)
+	if err != nil || record == nil {
+		t.Fatalf("missing pre-launch identity: %v %v", record, err)
+	}
+	if err := os.Rename(original, retained); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := purgeRecoveredStagingRoot(
+		record,
+	); !errors.Is(
+		err,
+		os.ErrNotExist,
+	) {
+		t.Fatalf("missing owned root did not block recovery: %v", err)
+	}
+	if err := os.Rename(retained, original); err != nil {
+		t.Fatal(err)
+	}
+	if err := purgeRecoveredStagingRoot(record); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(original)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("restored original retained data: %v %v", entries, err)
 	}
 }

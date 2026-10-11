@@ -20,6 +20,7 @@ Changed retries and expired claims return `409`.
 Invalid archives return `422`, and oversized bodies return `413`.
 Each snapshot permits 512 MiB of regular file content, 20,000 filesystem entries, and a 544 MiB TAR body.
 The entry limit includes parent directories omitted from TAR headers.
+The agent rejects an oversized download length before it reads the body.
 The agent keeps heartbeats active during transfers and removes staging before reporting an outcome.
 
 Active transfers have no fixed total timeout.
@@ -39,7 +40,10 @@ This includes processes that change sessions or double-fork.
 Cancellation uses the same confirmed process cleanup.
 If confirmation fails, the agent retains staging and exits for service-wide cleanup.
 The restarted service purges recorded staging before it delivers the saved failed result.
-Recovery records the path, device, and inode of moved staging directories.
+Before execution, recovery records the path, device, and inode of both staging directories.
+After execution, the agent updates these records before purge.
+Startup validates these records before it clears staging.
+Recovery saves progress after each directory purge.
 Recovery rejects replacement directories and symbolic links before purge.
 The agent retains both the workspace handle and staging root handle until cleanup.
 The supplied systemd unit uses `KillMode=control-group` for this restart boundary.

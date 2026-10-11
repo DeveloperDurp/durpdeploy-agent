@@ -162,7 +162,14 @@ func executeClaim(
 			if err == nil && stage.container == nil {
 				err = executor.EnableHostSupervisor()
 				if err == nil {
-					err = persistHostStagingCleanup(client, claim, nil)
+					err = stage.recordRoots(true)
+				}
+				if err == nil {
+					err = persistHostStagingCleanup(
+						client,
+						claim,
+						stage.recoveryRoots,
+					)
 				}
 			}
 		}
@@ -177,14 +184,14 @@ func executeClaim(
 		// A failed supervisor requires service-wide process cleanup on restart.
 		err = errors.Join(
 			err,
-			stage.recordRoots(),
+			stage.recordRoots(false),
 			stage.input.Close(),
 			stage.workspace.Close(), stage.root.Close(),
 		)
 	} else if stage != nil {
 		err = errors.Join(
 			err,
-			stage.close(context.WithoutCancel(executionCtx), client),
+			stage.close(context.WithoutCancel(executionCtx), client, claim),
 		)
 	}
 	cancel()

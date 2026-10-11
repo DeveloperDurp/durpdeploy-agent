@@ -22,10 +22,6 @@ func captureStagingRoot(
 	if err != nil {
 		return nil, err
 	}
-	current, err := os.Lstat(file.Name())
-	if err == nil && os.SameFile(info, current) {
-		return nil, nil
-	}
 	identity, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
 		return nil, staging.ErrInvalid

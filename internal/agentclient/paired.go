@@ -1,6 +1,7 @@
 package agentclient
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -49,7 +50,10 @@ func NewPaired(
 		sleep:        sleep,
 		jitter:       randomInt,
 	}
-	if err := client.ResetStaging(); err != nil {
+	if err := os.MkdirAll(
+		filepath.Join(stateDir, "staging"),
+		0700,
+	); err != nil {
 		return nil, err
 	}
 	tlsConfig, err := client.tlsConfig()
@@ -73,8 +77,25 @@ func NewPaired(
 // ResetStaging purges orphaned host files before recovery or polling resumes.
 func (client *Client) ResetStaging() error {
 	stageDir := filepath.Join(client.stateDir, "staging")
-	if err := staging.Purge(stageDir); err != nil {
+	info, err := os.Lstat(stageDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return os.Mkdir(stageDir, 0700)
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		if err := staging.Purge(stageDir); err != nil {
+			return err
+		}
+		return os.Mkdir(stageDir, 0700)
+	}
+	if err := os.Chmod(stageDir, 0700); err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(stageDir)
+	if err != nil {
 		return fmt.Errorf("purge orphaned staging: %w", err)
 	}
-	return os.Mkdir(stageDir, 0700)
+	return errors.Join(staging.PurgeRoot(root), root.Close())
 }

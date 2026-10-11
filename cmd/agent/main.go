@@ -142,9 +142,16 @@ func run(ctx context.Context, configuration config) error {
 }
 
 func runPaired(ctx context.Context, client *agentclient.Client) error {
+	stagingReady := false
 	for ctx.Err() == nil {
 		if err := resumeCleanupResult(ctx, client); err != nil {
 			return err
+		}
+		if !stagingReady {
+			if err := client.ResetStaging(); err != nil {
+				return err
+			}
+			stagingReady = true
 		}
 		claim, err := client.Poll(ctx)
 		if err != nil {

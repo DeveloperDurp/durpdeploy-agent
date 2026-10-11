@@ -40,7 +40,9 @@ func persistHostStagingCleanup(
 	return writeClaimMarker(client, marker)
 }
 
-func (s *jobStaging) recordRoots() error {
+// Record the workspace separately before execution can move it outside its root.
+// Before purge, the current parent can cover a nested workspace.
+func (s *jobStaging) recordRoots(includeWorkspace bool) error {
 	s.recoveryRoots = nil
 	base := ""
 	for _, root := range []*os.File{s.root, s.workspace} {
@@ -60,13 +62,19 @@ func (s *jobStaging) recordRoots() error {
 			}
 		} else if record != nil {
 			relative, err := filepath.Rel(base, record.Path)
-			if err == nil && relative != ".." &&
+			if !includeWorkspace && err == nil && relative != ".." &&
 				!strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 				continue // The staging root already owns this recovery obligation.
 			}
 		}
 		if record != nil {
-			s.recoveryRoots = append(s.recoveryRoots, record)
+			if includeWorkspace && root == s.workspace {
+				s.recoveryRoots = append(
+					[]*stagingRootRecord{record},
+					s.recoveryRoots...)
+			} else {
+				s.recoveryRoots = append(s.recoveryRoots, record)
+			}
 		}
 	}
 	return nil

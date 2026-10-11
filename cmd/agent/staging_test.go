@@ -16,9 +16,15 @@ import (
 )
 
 func TestClaimStagingPublishesBeforeResultAndPurges(t *testing.T) {
-	for _, scenario := range []string{"success", "upload-conflict", "invalid-output", "renamed-directory", "escaped-directory", "renamed-root", "escaped-root-workspace", "locked-root"} {
+	for _, scenario := range []string{"success", "pre-start-marker", "upload-conflict", "invalid-output", "renamed-directory", "escaped-directory", "renamed-root", "escaped-root-workspace", "locked-root"} {
 		t.Run(scenario, func(t *testing.T) {
 			script := `test "$(cat "$DURPDEPLOY_STAGE_DIR/input")" = shared; rm "$DURPDEPLOY_STAGE_DIR/input"; printf result > "$DURPDEPLOY_STAGE_DIR/output"`
+			if scenario == "pre-start-marker" {
+				script = fmt.Sprintf(
+					`root=$(dirname "$(dirname "$(dirname "$DURPDEPLOY_STAGE_DIR")")"); test "$(grep -o '"inode":' "$root/%s" | wc -l)" = 2 || exit 19; `,
+					claimFileName,
+				) + script
+			}
 			if scenario == "invalid-output" {
 				script += `; ln -s /etc/passwd "$DURPDEPLOY_STAGE_DIR/link"`
 			}
@@ -123,7 +129,7 @@ func TestClaimStagingPublishesBeforeResultAndPurges(t *testing.T) {
 			}
 			result := <-fixture.result
 			want := agentproto.ResultSucceeded
-			if scenario != "success" {
+			if scenario != "success" && scenario != "pre-start-marker" {
 				want = agentproto.ResultFailed
 			}
 			if result.State != want {

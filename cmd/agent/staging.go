@@ -121,13 +121,29 @@ func (s *jobStaging) publish(
 func (s *jobStaging) close(
 	ctx context.Context,
 	client *agentclient.Client,
-) error {
-	var result error
+	claim agentproto.PollResponse,
+) (result error) {
+	defer func() {
+		result = errors.Join(result, s.input.Close())
+		for _, root := range []*os.File{s.workspace, s.root} {
+			if root != nil {
+				result = errors.Join(result, root.Close())
+			}
+		}
+	}()
 	if s.container != nil {
 		result = s.container.Close(ctx)
 	}
-	if err := s.recordRoots(); err != nil {
-		result = errors.Join(result, runner.ErrContainerCleanup, err)
+	if err := s.recordRoots(false); err != nil {
+		return errors.Join(result, runner.ErrContainerCleanup, err)
+	} else if s.container == nil {
+		if err := persistHostStagingCleanup(
+			client,
+			claim,
+			s.recoveryRoots,
+		); err != nil {
+			return errors.Join(result, runner.ErrContainerCleanup, err)
+		}
 	}
 	// Both handles retain owned files when a script moves either directory.
 	for _, root := range []*os.File{s.workspace, s.root} {
@@ -137,11 +153,10 @@ func (s *jobStaging) close(
 		if err := purgeStagingHandle(root); err != nil {
 			result = errors.Join(result, runner.ErrContainerCleanup, err)
 		}
-		result = errors.Join(result, root.Close())
 	}
 	// Claims execute serially, so purge replacement trees before polling.
 	if err := client.ResetStaging(); err != nil {
 		result = errors.Join(result, runner.ErrContainerCleanup, err)
 	}
-	return errors.Join(result, s.input.Close())
+	return result
 }

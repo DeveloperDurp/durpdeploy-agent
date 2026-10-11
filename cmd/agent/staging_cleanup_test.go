@@ -104,8 +104,8 @@ func testHostStagingCleanup(
 	}
 	defer restarted.Close()
 	entries, err := os.ReadDir(stageDir)
-	if err != nil || len(entries) != 0 {
-		t.Fatalf("startup retained staging: %v, %v", entries, err)
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("startup purged staging before recovery: %v, %v", entries, err)
 	}
 	resumeCtx, resumeCancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer resumeCancel()
@@ -113,12 +113,18 @@ func testHostStagingCleanup(
 	go func() { done <- runPaired(resumeCtx, restarted) }()
 	select {
 	case <-fixture.pollAgain:
+	case err := <-done:
+		t.Fatalf("recovery stopped before polling: %v", err)
 	case <-resumeCtx.Done():
 		t.Fatal("polling did not resume after staging purge")
 	}
 	resumeCancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("stop recovered polling: %v", err)
+	}
+	entries, err = os.ReadDir(stageDir)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("recovered polling retained staging: %v, %v", entries, err)
 	}
 	result := <-fixture.result
 	if result.State != agentproto.ResultFailed ||
