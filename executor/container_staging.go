@@ -6,16 +6,17 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/DeveloperDurp/durpdeploy-agent/internal/staging"
 	"io"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/DeveloperDurp/durpdeploy-agent/internal/staging"
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
 
 const stagingHelperImage = "docker.io/library/alpine@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507"
+const quietFlag = "--quiet"
 
 type ContainerStage struct {
 	Volume string
@@ -49,7 +50,7 @@ func (r *ContainerExecutor) NewStage(
 	}()
 	if _, err := r.command(ctx, "image", "inspect", stagingHelperImage).
 		Output(); err != nil {
-		if err := r.command(ctx, "pull", "--quiet", stagingHelperImage).
+		if err := r.command(ctx, "pull", quietFlag, stagingHelperImage).
 			Run(); err != nil {
 			return stage, err
 		}
@@ -152,7 +153,7 @@ func (s *ContainerStage) Close(ctx context.Context) error {
 	cleanupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	err := s.runner.remove(cleanupCtx, s.keeper)
-	volumes, listErr := s.runner.command(cleanupCtx, "volume", "ls", "--quiet", "--filter=label=io.durpdeploy.agentstage="+s.runner.namespace).
+	volumes, listErr := s.runner.command(cleanupCtx, "volume", "ls", quietFlag, "--filter=label=io.durpdeploy.agentstage="+s.runner.namespace).
 		Output()
 	if listErr != nil {
 		err = errors.Join(err, ErrContainerCleanup)
@@ -161,8 +162,8 @@ func (s *ContainerStage) Close(ctx context.Context) error {
 		if name != s.Volume {
 			continue
 		}
-		if volumeErr := s.runner.command(cleanupCtx, "volume", "rm", "--force", s.Volume).
-			Run(); volumeErr != nil {
+		if s.runner.command(cleanupCtx, "volume", "rm", "--force", s.Volume).
+			Run() != nil {
 			err = errors.Join(
 				err,
 				fmt.Errorf("remove staging volume: %w", ErrContainerCleanup),
@@ -178,7 +179,7 @@ func (s *ContainerStage) Close(ctx context.Context) error {
 }
 
 func (r *ContainerExecutor) cleanStagingVolumes(ctx context.Context) error {
-	output, err := r.command(ctx, "volume", "ls", "--quiet", "--filter=label=io.durpdeploy.agentstage="+r.namespace).
+	output, err := r.command(ctx, "volume", "ls", quietFlag, "--filter=label=io.durpdeploy.agentstage="+r.namespace).
 		Output()
 	if err != nil {
 		return fmt.Errorf("list staging volumes: %w", ErrContainerCleanup)

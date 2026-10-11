@@ -42,6 +42,14 @@ func (e *Executor) Execute(
 	); err != nil {
 		return err
 	}
+	return e.executeAttempts(ctx, job, callbacks)
+}
+
+func (e *Executor) executeAttempts(
+	ctx context.Context,
+	job Job,
+	callbacks Callbacks,
+) error {
 	writer := newRedactingWriter(NewScrubber(job.secrets), callbacks.writeLog)
 	maxAttempts := job.maxRetries + 1
 	var lastErr error
@@ -53,66 +61,78 @@ func (e *Executor) Execute(
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if job.executionMode == agentproto.ExecutionContainer {
-			if e.container == nil {
-				return ErrContainerUnavailable
-			}
-			lastErr = e.container.runAttempt(
-				ctx,
-				job,
-				writer,
-				callbacks,
-				attempt,
-				&imageID,
-			)
-			if lastErr != nil {
-				if logErr := writer.write(
-					fmt.Sprintf(
-						"step %q: container attempt failed: %v\n",
-						job.name,
-						lastErr,
-					),
-				); logErr != nil {
-					lastErr = errors.Join(lastErr, logErr)
-				}
-				if flushErr := writer.flush(); flushErr != nil {
-					lastErr = errors.Join(lastErr, flushErr)
-				}
-			}
-		} else {
-			lastErr = e.runAttempt(ctx, job, writer, callbacks, attempt)
-		}
+		lastErr = e.executeAttempt(
+			ctx,
+			job,
+			writer,
+			callbacks,
+			attempt,
+			&imageID,
+		)
 		if lastErr == nil {
 			return nil
 		}
-		if errors.Is(lastErr, ErrContainerCleanup) ||
-			errors.Is(lastErr, ErrLogDelivery) ||
-			errors.Is(lastErr, ErrStepOutputLimit) {
-			return lastErr
-		}
-		if callbacks.cancelled != nil && callbacks.cancelled() {
-			return ErrCancelled
-		}
-		if errors.Is(lastErr, ErrInterpreterUnavailable) ||
-			errors.Is(lastErr, ErrInvalidStepExecution) ||
-			errors.Is(lastErr, ErrContainerUnavailable) {
-			return lastErr
+		if err := retryError(lastErr, callbacks); err != nil {
+			return err
 		}
 		if attempt < maxAttempts {
-			if err := writer.write(
-				fmt.Sprintf(
-					"step %q: retrying (attempt %d of %d)\n",
-					job.name,
-					attempt+1,
-					maxAttempts,
-				),
-			); err != nil {
-				return err
-			}
-			if err := writer.flush(); err != nil {
+			if err := writeRetry(writer, job, attempt); err != nil {
 				return err
 			}
 		}
 	}
 	return lastErr
+}
+
+// allow: PARAMS_OK — preserve the host/container attempt contract and image pin.
+func (e *Executor) executeAttempt(
+	ctx context.Context,
+	job Job,
+	writer *redactingWriter,
+	callbacks Callbacks,
+	attempt int,
+	imageID *string,
+) error {
+	if job.executionMode != agentproto.ExecutionContainer {
+		return e.runAttempt(ctx, job, writer, callbacks, attempt)
+	}
+	if e.container == nil {
+		return ErrContainerUnavailable
+	}
+	err := e.container.runAttempt(ctx, job, writer, callbacks, attempt, imageID)
+	if err == nil {
+		return nil
+	}
+	logErr := writer.write(fmt.Sprintf(
+		"step %q: container attempt failed: %v\n", job.name, err,
+	))
+	return errors.Join(err, logErr, writer.flush())
+}
+
+func retryError(err error, callbacks Callbacks) error {
+	if errors.Is(err, ErrContainerCleanup) || errors.Is(err, ErrLogDelivery) ||
+		errors.Is(err, ErrStepOutputLimit) {
+		return err
+	}
+	if callbacks.cancelled != nil && callbacks.cancelled() {
+		return ErrCancelled
+	}
+	if errors.Is(err, ErrInterpreterUnavailable) ||
+		errors.Is(err, ErrInvalidStepExecution) ||
+		errors.Is(err, ErrContainerUnavailable) {
+		return err
+	}
+	return nil
+}
+
+func writeRetry(writer *redactingWriter, job Job, attempt int) error {
+	if err := writer.write(fmt.Sprintf(
+		"step %q: retrying (attempt %d of %d)\n",
+		job.name,
+		attempt+1,
+		job.maxRetries+1,
+	)); err != nil {
+		return err
+	}
+	return writer.flush()
 }

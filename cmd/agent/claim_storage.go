@@ -60,6 +60,44 @@ func persistClaim(
 	return writeClaimMarker(client, marker)
 }
 
+// allow: PARAMS_OK — the decoded steps determine this claim's recovery phase.
+func prepareContainerClaim(
+	ctx context.Context,
+	client *agentclient.Client,
+	claim agentproto.PollResponse,
+	steps []runner.Step,
+) error {
+	for _, step := range steps {
+		if step.ExecutionMode != agentproto.ExecutionContainer {
+			continue
+		}
+		if err := persistClaim(client, claim, claimCleanupPending); err != nil {
+			// Start was acknowledged, but no workload has started. Retire any
+			// partially written recovery report before sending a normal failure.
+			clearErr := clearClaim(client)
+			result := agentproto.ResultFailed
+			if clearErr != nil {
+				result = agentproto.ResultCleanupUnconfirmed
+			}
+			reportCtx, cancel := context.WithTimeout(
+				context.WithoutCancel(
+					ctx,
+				),
+				agentproto.CancelAcknowledgementTimeout,
+			)
+			defer cancel()
+			return errors.Join(err, clearErr, client.Result(reportCtx,
+				claim.DeploymentID, agentproto.ResultRequest{
+					ClaimToken: claim.ClaimToken,
+					State:      result,
+					Error:      "No workload was started. Claim recovery state could not be persisted; restore access to the agent state directory.",
+				}))
+		}
+		return nil
+	}
+	return nil
+}
+
 func writeClaimMarker(client *agentclient.Client, marker claimMarker) error {
 	contents, err := json.Marshal(marker)
 	if err != nil {

@@ -212,28 +212,19 @@ func (e *Executor) runAttempt(
 		return flushErr
 	}
 	if err != nil {
+		message := fmt.Sprintf(
+			"step %q: attempt %d failed: %v\n", job.name, attempt, err,
+		)
 		if stepCtx.Err() == context.DeadlineExceeded {
-			if writeErr := writer.write(
-				fmt.Sprintf(
-					"step %q: attempt %d timed out after %s\n",
-					job.name,
-					attempt,
-					timeout,
-				),
-			); writeErr != nil {
-				return writeErr
-			}
-		} else {
-			if writeErr := writer.write(
-				fmt.Sprintf(
-					"step %q: attempt %d failed: %v\n",
-					job.name,
-					attempt,
-					err,
-				),
-			); writeErr != nil {
-				return writeErr
-			}
+			message = fmt.Sprintf(
+				"step %q: attempt %d timed out after %s\n",
+				job.name,
+				attempt,
+				timeout,
+			)
+		}
+		if writeErr := writer.write(message); writeErr != nil {
+			return writeErr
 		}
 		if flushErr := writer.flush(); flushErr != nil {
 			return flushErr

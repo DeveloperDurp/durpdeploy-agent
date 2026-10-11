@@ -56,37 +56,14 @@ func executeClaim(
 		return err
 	}
 	slog.Info("deployment started", "deployment_id", claim.DeploymentID)
-	for _, step := range payload.Release.Steps {
-		if step.ExecutionMode == agentproto.ExecutionContainer {
-			if err := persistClaim(
-				client,
-				claim,
-				claimCleanupPending,
-			); err != nil {
-				// Start was acknowledged, but no workload has started. Retire any
-				// partially written recovery report before sending a normal failure.
-				clearMarker = false
-				clearErr := clearClaim(client)
-				result := agentproto.ResultFailed
-				if clearErr != nil {
-					result = agentproto.ResultCleanupUnconfirmed
-				}
-				reportCtx, reportCancel := context.WithTimeout(
-					context.WithoutCancel(
-						ctx,
-					),
-					agentproto.CancelAcknowledgementTimeout,
-				)
-				defer reportCancel()
-				return errors.Join(err, clearErr, client.Result(reportCtx,
-					claim.DeploymentID, agentproto.ResultRequest{
-						ClaimToken: claim.ClaimToken,
-						State:      result,
-						Error:      "No workload was started. Claim recovery state could not be persisted; restore access to the agent state directory.",
-					}))
-			}
-			break
-		}
+	if err := prepareContainerClaim(
+		ctx,
+		client,
+		claim,
+		payload.Release.Steps,
+	); err != nil {
+		clearMarker = false
+		return err
 	}
 	executionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()

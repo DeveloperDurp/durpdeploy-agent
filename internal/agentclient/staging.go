@@ -39,18 +39,11 @@ func (client *Client) Staging(
 		var body io.Reader
 		var size int64
 		if upload != nil {
-			info, err := upload.Stat()
+			var err error
+			body, size, err = stagingUploadBody(upload)
 			if err != nil {
 				return nil, err
 			}
-			size = info.Size()
-			if size > staging.MaxArchive {
-				return nil, staging.ErrInvalid
-			}
-			if _, err := upload.Seek(0, io.SeekStart); err != nil {
-				return nil, err
-			}
-			body = io.NewSectionReader(upload, 0, size)
 		}
 		request, err := http.NewRequestWithContext(
 			transferCtx,
@@ -87,13 +80,7 @@ func (client *Client) Staging(
 		if upload != nil && response.StatusCode == 204 {
 			return nil, response.Body.Close()
 		}
-		if upload != nil {
-			return nil, errors.Join(
-				&StatusError{Status: response.StatusCode},
-				response.Body.Close(),
-			)
-		}
-		if response.StatusCode != 200 {
+		if upload != nil || response.StatusCode != 200 {
 			return nil, errors.Join(
 				&StatusError{Status: response.StatusCode},
 				response.Body.Close(),
@@ -146,4 +133,19 @@ func (client *Client) Staging(
 		}
 		return file, nil
 	}
+}
+
+func stagingUploadBody(upload *os.File) (io.Reader, int64, error) {
+	info, err := upload.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
+	size := info.Size()
+	if size > staging.MaxArchive {
+		return nil, 0, staging.ErrInvalid
+	}
+	if _, err := upload.Seek(0, io.SeekStart); err != nil {
+		return nil, 0, err
+	}
+	return io.NewSectionReader(upload, 0, size), size, nil
 }

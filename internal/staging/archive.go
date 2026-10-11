@@ -49,8 +49,7 @@ func Pack(
 			if err != nil {
 				return err
 			}
-			if !info.Mode().IsRegular() && !info.IsDir() || len(name) > 4096 ||
-				strings.ContainsAny(name, "\\\x00") {
+			if !info.Mode().IsRegular() && !info.IsDir() || !validName(name) {
 				return ErrInvalid
 			}
 			count++
@@ -86,7 +85,7 @@ func Pack(
 			}
 			_, copyErr := io.CopyN(
 				writer,
-				&contextReader{ctx: ctx, source: file, remaining: -1},
+				&boundedReader{cancelled: ctx.Err, source: file, remaining: -1},
 				header.Size,
 			)
 			return errors.Join(copyErr, file.Close())
@@ -109,9 +108,9 @@ func Unpack(
 		}
 		defer func() { result = errors.Join(result, root.Close()) }()
 	}
-	bounded := &contextReader{
-		ctx:    ctx,
-		source: io.LimitReader(source, MaxArchive+1),
+	bounded := &boundedReader{
+		cancelled: ctx.Err,
+		source:    io.LimitReader(source, MaxArchive+1),
 	}
 	reader := tar.NewReader(bounded)
 	seen := make(map[string]bool)
@@ -130,62 +129,83 @@ func Unpack(
 			header.Size == 0 {
 			continue
 		}
-		if !fs.ValidPath(name) || len(name) > 4096 ||
-			strings.ContainsAny(name, "\\\x00") {
-			return ErrInvalid
-		}
-		if _, exists := seen[name]; exists {
-			return ErrInvalid
-		}
-		if len(seen) >= MaxFiles || header.Size < 0 ||
-			header.Size > MaxBytes-total {
-			return ErrInvalid
-		}
-		isDir := header.Typeflag == tar.TypeDir
-		if !isDir && header.Typeflag != tar.TypeReg &&
-			header.Typeflag != tar.TypeRegA ||
-			isDir && header.Size != 0 {
-			return ErrInvalid
-		}
-		seen[name] = isDir
-		for parent := path.Dir(name); parent != "."; parent = path.Dir(parent) {
-			if dir, exists := seen[parent]; exists && !dir {
-				return ErrInvalid
-			}
+		header.Name = name
+		if err := validateEntry(header, seen, total); err != nil {
+			return err
 		}
 		total += header.Size
 		bounded.remaining = header.Size
-		if isDir {
-			if root != nil {
-				if err := root.MkdirAll(name, 0700); err != nil {
-					return err
-				}
-			}
-			continue
-		}
-		if root == nil {
-			if _, err := io.Copy(io.Discard, reader); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := root.MkdirAll(path.Dir(name), 0700); err != nil {
-			return err
-		}
-		file, err := root.OpenFile(
-			name,
-			os.O_CREATE|os.O_EXCL|os.O_WRONLY,
-			0600,
-		)
-		if err != nil {
-			return err
-		}
-		_, copyErr := io.Copy(file, reader)
-		if err := errors.Join(copyErr, file.Close()); err != nil {
+		if err := restoreEntry(root, header, reader); err != nil {
 			return err
 		}
 	}
 	bounded.remaining = 16 << 20
+	return validateTrailer(bounded)
+}
+
+func validName(name string) bool {
+	return fs.ValidPath(name) && len(name) <= 4096 &&
+		!strings.ContainsAny(name, "\\\x00")
+}
+
+func validateEntry(
+	header *tar.Header,
+	seen map[string]bool,
+	total int64,
+) error {
+	name := header.Name
+	if !validName(name) {
+		return ErrInvalid
+	}
+	if _, exists := seen[name]; exists {
+		return ErrInvalid
+	}
+	if len(seen) >= MaxFiles || header.Size < 0 ||
+		header.Size > MaxBytes-total {
+		return ErrInvalid
+	}
+	isDir := header.Typeflag == tar.TypeDir
+	if !isDir && header.Typeflag != tar.TypeReg &&
+		header.Typeflag != tar.TypeRegA ||
+		isDir && header.Size != 0 {
+		return ErrInvalid
+	}
+	seen[name] = isDir
+	for parent := path.Dir(name); parent != "."; parent = path.Dir(parent) {
+		if dir, exists := seen[parent]; exists && !dir {
+			return ErrInvalid
+		}
+	}
+	return nil
+}
+
+func restoreEntry(root *os.Root, header *tar.Header, reader *tar.Reader) error {
+	if header.Typeflag == tar.TypeDir {
+		if root != nil {
+			return root.MkdirAll(header.Name, 0700)
+		}
+		return nil
+	}
+	if root == nil {
+		_, err := io.Copy(io.Discard, reader)
+		return err
+	}
+	if err := root.MkdirAll(path.Dir(header.Name), 0700); err != nil {
+		return err
+	}
+	file, err := root.OpenFile(
+		header.Name,
+		os.O_CREATE|os.O_EXCL|os.O_WRONLY,
+		0600,
+	)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(file, reader)
+	return errors.Join(copyErr, file.Close())
+}
+
+func validateTrailer(bounded io.Reader) error {
 	trailer, err := io.ReadAll(io.LimitReader(bounded, (16<<20)+1))
 	if err != nil || len(trailer) > 16<<20 {
 		return ErrInvalid
@@ -198,14 +218,14 @@ func Unpack(
 	return nil
 }
 
-type contextReader struct {
-	ctx       context.Context
+type boundedReader struct {
+	cancelled func() error
 	source    io.Reader
 	remaining int64
 }
 
-func (r *contextReader) Read(data []byte) (int, error) {
-	if err := r.ctx.Err(); err != nil {
+func (r *boundedReader) Read(data []byte) (int, error) {
+	if err := r.cancelled(); err != nil {
 		return 0, err
 	}
 	if r.remaining == 0 {
