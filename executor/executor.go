@@ -207,6 +207,9 @@ func (e *Executor) runAttempt(
 			e.killAfterDeadline(pgid)
 		}(pgid)
 		<-cleanupDone
+	} else if job.stageDirectory != "" {
+		// Stop background staging writers before snapshotting or purging.
+		killProcessGroup(pgid)
 	}
 	if flushErr := writer.flush(); flushErr != nil {
 		return flushErr
