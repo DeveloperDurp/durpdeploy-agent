@@ -18,7 +18,8 @@ Downloads include `Content-Length` and `X-Artifact-SHA256`.
 Uploads return `204` and accept identical retries.
 Changed retries and expired claims return `409`.
 Invalid archives return `422`, and oversized bodies return `413`.
-Each snapshot permits 512 MiB of regular file content, 20,000 entries, and a 544 MiB TAR body.
+Each snapshot permits 512 MiB of regular file content, 20,000 filesystem entries, and a 544 MiB TAR body.
+The entry limit includes parent directories omitted from TAR headers.
 The agent keeps heartbeats active during transfers and removes staging before reporting an outcome.
 
 Active transfers have no fixed total timeout.
@@ -37,11 +38,21 @@ The supervisor stops and reaps every remaining descendant before publication, re
 This includes processes that change sessions or double-fork.
 Cancellation uses the same confirmed process cleanup.
 If confirmation fails, the agent retains staging and exits for service-wide cleanup.
-The restarted service purges staging before it delivers the saved failed result.
+The restarted service purges recorded staging before it delivers the saved failed result.
 Recovery records the path, device, and inode of moved staging directories.
 Recovery rejects replacement directories and symbolic links before purge.
 The agent retains both the workspace handle and staging root handle until cleanup.
 The supplied systemd unit uses `KillMode=control-group` for this restart boundary.
+
+The server owner is responsible for deployment scripts and their effects.
+Cleanup covers managed staging and normal job descendants.
+Deliberate supervisor sabotage and script-created copies outside staging are outside this cleanup guarantee.
+If a recorded directory is missing or replaced, recovery stays blocked.
+Stop the agent service before restoring the original directory to its recorded path.
+Restart the agent to retry cleanup.
+Do not delete the claim marker to skip cleanup.
+Staging transfer adds no per-job cgroup or delegation requirement.
+
 Embedded executors must call `EnableHostSupervisor` and dispatch `HostSupervisorMain` before application startup.
 Container steps receive `DURPDEPLOY_STAGE_DIR=/stage` through a private tmpfs volume.
 Variable selections cannot remove this variable.
