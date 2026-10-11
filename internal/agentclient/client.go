@@ -126,6 +126,9 @@ func (client *Client) sendStatus(
 			return 0, fmt.Errorf("create agent request: %w", err)
 		}
 		request.Header.Set("Content-Type", "application/json")
+		if path == agentproto.PollPath {
+			request.Header.Set("X-DurpDeploy-Staging", "staging/1")
+		}
 		if authorization != "" {
 			request.Header.Set("Authorization", authorization)
 		}

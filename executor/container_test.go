@@ -43,6 +43,7 @@ info)
 ps)
  [[ ! -e "$fixture/owned" ]] || printf '%%s\n' owned
  ;;
+volume) ;;
 rm)
  printf 'remove\n' >> "$fixture/actions"
  [[ ! -e "$fixture/cleanup-fail" ]] || exit 1

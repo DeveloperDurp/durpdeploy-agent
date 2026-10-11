@@ -37,6 +37,7 @@ case "$1" in
 info) [[ ! -e %q ]] || exit 1
 printf '%%s' '{"OSType":"linux","MemoryLimit":true,"CpuCfsQuota":true,"PidsLimit":true,"SecurityOptions":["name=seccomp,profile=builtin"],"host":{"os":"linux","cgroupControllers":["cpu","memory","pids"],"security":{"seccompEnabled":true,"seccompProfilePath":"/usr/share/containers/seccomp.json"}}}' ;;
 ps) ;;
+volume) ;;
 *) exit 2 ;;
 esac
 `, offline)

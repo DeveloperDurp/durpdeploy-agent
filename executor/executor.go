@@ -11,7 +11,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
+	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
 
 const (
@@ -37,6 +37,8 @@ func baseStepEnv() []string {
 
 // JobConfig supplies the values copied into an immutable Job.
 type JobConfig struct {
+	StageDirectory string
+	StageVolume    string
 	ExecutionMode  agentproto.ExecutionMode
 	ContainerImage string
 	VariableNames  []string
@@ -52,6 +54,8 @@ type JobConfig struct {
 
 // Job is an immutable step execution request.
 type Job struct {
+	stageDirectory string
+	stageVolume    string
 	executionMode  agentproto.ExecutionMode
 	containerImage string
 	variableNames  []string
@@ -71,6 +75,8 @@ func NewJob(config JobConfig) Job {
 		environment[key] = value
 	}
 	return Job{
+		stageDirectory: config.StageDirectory,
+		stageVolume:    config.StageVolume,
 		executionMode:  config.ExecutionMode,
 		containerImage: config.ContainerImage,
 		variableNames:  slices.Clone(config.VariableNames),
@@ -117,6 +123,7 @@ type Executor struct {
 	deadlineGrace     func()
 	killGroup         func(int)
 	container         *ContainerExecutor
+	hostSupervisor    string
 }
 
 // NewExecutorWithContainers keeps host execution inside its existing boundary.
@@ -131,109 +138,6 @@ func NewExecutor() *Executor {
 		boundaryValidated: true,
 		sandboxErr:        validateExecutionBoundary(),
 	}
-}
-
-func (e *Executor) Execute(
-	ctx context.Context,
-	job Job,
-	callbacks Callbacks,
-) error {
-	if !e.boundaryValidated {
-		return fmt.Errorf("initialize runner sandbox: boundary not validated")
-	}
-	if e.sandboxErr != nil {
-		return fmt.Errorf("initialize runner sandbox: %w", e.sandboxErr)
-	}
-	if err := (Step{ExecutionMode: job.executionMode, ContainerImage: job.containerImage, VariableNames: job.variableNames}).ValidateExecution(); err != nil {
-		return err
-	}
-	environment, err := selectStepEnvironment(
-		job.environment,
-		job.variableNames,
-		job.executionMode == agentproto.ExecutionContainer,
-	)
-	if err != nil {
-		return err
-	}
-	job.environment = environment
-	if _, err := agentproto.ParseInterpreter(
-		string(normalizeInterpreter(job.interpreter)),
-	); err != nil {
-		return err
-	}
-	writer := newRedactingWriter(NewScrubber(job.secrets), callbacks.writeLog)
-	maxAttempts := job.maxRetries + 1
-	var lastErr error
-	var imageID string
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if callbacks.cancelled != nil && callbacks.cancelled() {
-			return ErrCancelled
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if job.executionMode == agentproto.ExecutionContainer {
-			if e.container == nil {
-				return ErrContainerUnavailable
-			}
-			lastErr = e.container.runAttempt(
-				ctx,
-				job,
-				writer,
-				callbacks,
-				attempt,
-				&imageID,
-			)
-			if lastErr != nil {
-				if logErr := writer.write(
-					fmt.Sprintf(
-						"step %q: container attempt failed: %v\n",
-						job.name,
-						lastErr,
-					),
-				); logErr != nil {
-					lastErr = errors.Join(lastErr, logErr)
-				}
-				if flushErr := writer.flush(); flushErr != nil {
-					lastErr = errors.Join(lastErr, flushErr)
-				}
-			}
-		} else {
-			lastErr = e.runAttempt(ctx, job, writer, callbacks, attempt)
-		}
-		if lastErr == nil {
-			return nil
-		}
-		if errors.Is(lastErr, ErrContainerCleanup) ||
-			errors.Is(lastErr, ErrLogDelivery) ||
-			errors.Is(lastErr, ErrStepOutputLimit) {
-			return lastErr
-		}
-		if callbacks.cancelled != nil && callbacks.cancelled() {
-			return ErrCancelled
-		}
-		if errors.Is(lastErr, ErrInterpreterUnavailable) ||
-			errors.Is(lastErr, ErrInvalidStepExecution) ||
-			errors.Is(lastErr, ErrContainerUnavailable) {
-			return lastErr
-		}
-		if attempt < maxAttempts {
-			if err := writer.write(
-				fmt.Sprintf(
-					"step %q: retrying (attempt %d of %d)\n",
-					job.name,
-					attempt+1,
-					maxAttempts,
-				),
-			); err != nil {
-				return err
-			}
-			if err := writer.flush(); err != nil {
-				return err
-			}
-		}
-	}
-	return lastErr
 }
 
 func (e *Executor) runAttempt(
@@ -278,7 +182,17 @@ func (e *Executor) runAttempt(
 	for key, value := range job.environment {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
 	}
-	cmd.WaitDelay = 15 * time.Second
+	var supervision *hostCommand
+	if job.stageDirectory != "" {
+		supervision, err = e.supervisedCommand(stepCtx, cmd)
+		if err != nil {
+			return err
+		}
+		defer func() { err = errors.Join(err, supervision.close()) }()
+		cmd = supervision.command
+	} else {
+		cmd.WaitDelay = 15 * time.Second
+	}
 
 	var output bytes.Buffer
 	cmd.Stdout = io.MultiWriter(&output, writer)
@@ -297,7 +211,11 @@ func (e *Executor) runAttempt(
 		}
 	}
 	err = cmd.Wait()
-	if err != nil && stepCtx.Err() != nil {
+	if supervision != nil {
+		if cleanupErr := supervision.confirm(); cleanupErr != nil {
+			return errors.Join(err, cleanupErr)
+		}
+	} else if err != nil && stepCtx.Err() != nil {
 		cleanupDone := make(chan struct{})
 		go func(pgid int) {
 			defer close(cleanupDone)
@@ -309,28 +227,19 @@ func (e *Executor) runAttempt(
 		return flushErr
 	}
 	if err != nil {
+		message := fmt.Sprintf(
+			"step %q: attempt %d failed: %v\n", job.name, attempt, err,
+		)
 		if stepCtx.Err() == context.DeadlineExceeded {
-			if writeErr := writer.write(
-				fmt.Sprintf(
-					"step %q: attempt %d timed out after %s\n",
-					job.name,
-					attempt,
-					timeout,
-				),
-			); writeErr != nil {
-				return writeErr
-			}
-		} else {
-			if writeErr := writer.write(
-				fmt.Sprintf(
-					"step %q: attempt %d failed: %v\n",
-					job.name,
-					attempt,
-					err,
-				),
-			); writeErr != nil {
-				return writeErr
-			}
+			message = fmt.Sprintf(
+				"step %q: attempt %d timed out after %s\n",
+				job.name,
+				attempt,
+				timeout,
+			)
+		}
+		if writeErr := writer.write(message); writeErr != nil {
+			return writeErr
 		}
 		if flushErr := writer.flush(); flushErr != nil {
 			return flushErr

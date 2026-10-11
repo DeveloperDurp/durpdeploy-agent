@@ -17,6 +17,20 @@ func (fixture *agentSubprocessFixture) assertNoSecretFiles(t *testing.T) {
 		t.Fatalf("read state dir: %v", err)
 	}
 	for _, entry := range entries {
+		if entry.IsDir() {
+			children, err := os.ReadDir(
+				filepath.Join(fixture.stateDir, entry.Name()),
+			)
+			if err != nil || len(children) != 0 {
+				t.Fatalf(
+					"unexpected state directory %s: %v (%v)",
+					entry.Name(),
+					children,
+					err,
+				)
+			}
+			continue
+		}
 		contents, err := os.ReadFile(
 			filepath.Join(fixture.stateDir, entry.Name()),
 		)

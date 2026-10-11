@@ -1,11 +1,15 @@
 package agentclient
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/DeveloperDurp/durpdeploy-agent/executor"
+	"github.com/DeveloperDurp/durpdeploy-agent/internal/staging"
 	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
 	"github.com/DeveloperDurp/durpdeploy-agent/state"
 	"github.com/DeveloperDurp/durpdeploy-agent/transport"
@@ -46,6 +50,12 @@ func NewPaired(
 		sleep:        sleep,
 		jitter:       randomInt,
 	}
+	if err := os.MkdirAll(
+		filepath.Join(stateDir, "staging"),
+		0700,
+	); err != nil {
+		return nil, err
+	}
 	tlsConfig, err := client.tlsConfig()
 	if err != nil {
 		return nil, err
@@ -62,4 +72,30 @@ func NewPaired(
 		},
 	}
 	return client, nil
+}
+
+// ResetStaging purges orphaned host files before recovery or polling resumes.
+func (client *Client) ResetStaging() error {
+	stageDir := filepath.Join(client.stateDir, "staging")
+	info, err := os.Lstat(stageDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return os.Mkdir(stageDir, 0700)
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		if err := staging.Purge(stageDir); err != nil {
+			return err
+		}
+		return os.Mkdir(stageDir, 0700)
+	}
+	if err := os.Chmod(stageDir, 0700); err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(stageDir)
+	if err != nil {
+		return fmt.Errorf("purge orphaned staging: %w", err)
+	}
+	return errors.Join(staging.PurgeRoot(root), root.Close())
 }

@@ -44,6 +44,7 @@ fixture=%q
 marker=%q
 while [[ "$1" == --* ]]; do shift; done
 case "$1" in
+volume) ;;
 info) printf '%%s' '{"OSType":"linux","MemoryLimit":true,"CpuCfsQuota":true,"PidsLimit":true,"SecurityOptions":["name=seccomp,profile=builtin"]}' ;;
 ps) if [[ -e "$fixture/owned" ]]; then printf 'owned\n'; fi ;;
 image) printf '%%s' '[{"Id":"sha256:fixed","Config":{"Volumes":null}}]' ;;

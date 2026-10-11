@@ -101,6 +101,8 @@ func (s Step) ValidateExecution() error {
 // ExecutionConfig supplies a deployment's immutable step snapshot and its
 // environment to the sandboxed executor.
 type ExecutionConfig struct {
+	StageDirectory   string
+	StageVolume      string
 	DeploymentID     int64
 	Steps            []Step
 	Environment      map[string]string
@@ -122,6 +124,8 @@ func (e *Executor) ExecuteSteps(
 			callbacks = config.CallbacksForStep(step)
 		}
 		err := e.Execute(ctx, NewJob(JobConfig{
+			StageDirectory: config.StageDirectory,
+			StageVolume:    config.StageVolume,
 			DeploymentID:   config.DeploymentID,
 			Name:           step.Name,
 			ScriptBody:     step.ScriptBody,

@@ -7,6 +7,62 @@ listener, database state, runner authorization, or fallback path.
 
 ## Endpoints and payloads
 
+Deployment staging uses the optional `X-DurpDeploy-Staging: staging/1` poll capability.
+The encrypted release object contains `staging: true` when the job requires staging transfer.
+These jobs contain exactly one step.
+Download the input TAR from `POST /agent/v1/deployments/{id}/staging/download`.
+Upload the final TAR to `POST /agent/v1/deployments/{id}/staging/upload` before reporting success.
+Include the live claim token in `X-DurpDeploy-Claim` on both requests.
+
+Downloads include `Content-Length` and `X-Artifact-SHA256`.
+Uploads return `204` and accept identical retries.
+Changed retries and expired claims return `409`.
+Invalid archives return `422`, and oversized bodies return `413`.
+Each snapshot permits 512 MiB of regular file content, 20,000 filesystem entries, and a 544 MiB TAR body.
+The entry limit includes parent directories omitted from TAR headers.
+The agent rejects an oversized download length before it reads the body.
+The agent keeps heartbeats active during transfers and removes staging before reporting an outcome.
+
+Active transfers have no fixed total timeout.
+Requests stop after five minutes without transfer progress.
+Local archive write failures end the job without another download attempt.
+
+Host workspaces use private claim directories.
+The agent rejects a renamed or replaced workspace before publication.
+The agent clears its serialized staging root, including workspaces moved outside their claim directories.
+If host cleanup fails, the agent saves a failed result and stops polling.
+The agent removes retained staging before it delivers the saved result.
+
+Host steps receive a private `DURPDEPLOY_STAGE_DIR` directory.
+Staged host attempts run under a dedicated Linux child subreaper.
+The supervisor stops and reaps every remaining descendant before publication, retry, or purge.
+This includes processes that change sessions or double-fork.
+Cancellation uses the same confirmed process cleanup.
+If confirmation fails, the agent retains staging and exits for service-wide cleanup.
+The restarted service purges recorded staging before it delivers the saved failed result.
+Before execution, recovery records the path, device, and inode of both staging directories.
+After execution, the agent updates these records before purge.
+Startup validates these records before it clears staging.
+Recovery saves progress after each directory purge.
+Recovery rejects replacement directories and symbolic links before purge.
+The agent retains both the workspace handle and staging root handle until cleanup.
+The supplied systemd unit uses `KillMode=control-group` for this restart boundary.
+
+The server owner is responsible for deployment scripts and their effects.
+Cleanup covers managed staging and normal job descendants.
+Deliberate supervisor sabotage and script-created copies outside staging are outside this cleanup guarantee.
+If a recorded directory is missing or replaced, recovery stays blocked.
+Stop the agent service before restoring the original directory to its recorded path.
+Restart the agent to retry cleanup.
+Do not delete the claim marker to skip cleanup.
+Staging transfer adds no per-job cgroup or delegation requirement.
+
+Embedded executors must call `EnableHostSupervisor` and dispatch `HostSupervisorMain` before application startup.
+Container steps receive `DURPDEPLOY_STAGE_DIR=/stage` through a private tmpfs volume.
+Variable selections cannot remove this variable.
+The server combines independent parallel changes and deletions, but conflicting changes fail the deployment.
+The server purges encrypted transfer snapshots when the deployment ends.
+
 All JSON requests are exactly one object and require a present, non-null
 protocol. They reject unknown fields, trailing JSON values, malformed JSON,
 and unsupported protocol values. Pairing remains `agent/1`. Paired lifecycle

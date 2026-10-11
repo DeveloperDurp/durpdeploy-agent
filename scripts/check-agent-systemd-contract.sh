@@ -21,6 +21,7 @@ required=(
 	'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6'
 	'MemoryMax=512M'
 	'TasksMax=128'
+	'KillMode=control-group'
 	'CapabilityBoundingSet='
 	'AmbientCapabilities='
 	'CPUQuota=100%'
@@ -55,6 +56,8 @@ for raw_line in pathlib.Path(sys.argv[1]).read_text().splitlines():
         raise SystemExit("agent systemd contract: forbidden PrivateNetwork=true")
     if key == "delegate" and value == "true":
         raise SystemExit("agent systemd contract: forbidden Delegate=true")
+    if key == "killmode" and value != "control-group":
+        raise SystemExit("agent systemd contract: forbidden KillMode override")
     if key == "protectcontrolgroups" and value != "true":
         raise SystemExit(
             "agent systemd contract: forbidden ProtectControlGroups=false"

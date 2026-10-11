@@ -46,6 +46,7 @@ type ContainerExecutor struct {
 	clientHome string
 	mu         sync.Mutex
 	cleanupErr error
+	stages     map[string]bool
 }
 
 func NewContainerExecutor(
@@ -174,6 +175,11 @@ func (r *ContainerExecutor) Ready(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := r.cleanStagingVolumes(checkCtx); err != nil {
+		r.cleanupErr = err
+		return err
+	}
+	clear(r.stages)
 	remaining, err := r.ownedContainers(checkCtx)
 	if err != nil || len(remaining) != 0 {
 		r.cleanupErr = fmt.Errorf(

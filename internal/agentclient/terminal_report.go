@@ -94,6 +94,30 @@ func (client *Client) ReportTerminal(
 	}
 }
 
+// ConfirmTerminalCancellation seals cancellation only after a live claim check.
+func (client *Client) ConfirmTerminalCancellation(
+	ctx context.Context,
+	id agentproto.DeploymentID,
+	request agentproto.ResultRequest,
+) ([]byte, error) {
+	if request.State != agentproto.ResultFailed &&
+		request.State != agentproto.ResultSucceeded {
+		return nil, fmt.Errorf(
+			"cancellation recovery requires a completed result",
+		)
+	}
+	heartbeat, err := client.Heartbeat(ctx, id, request.ClaimToken)
+	if err != nil || !heartbeat.CancelRequested {
+		return nil, err
+	}
+	return client.sealReport(id, terminalReport{
+		Cancelled: &agentproto.CancelledRequest{
+			ProtocolEnvelope: request.ProtocolEnvelope,
+			ClaimToken:       request.ClaimToken,
+		},
+	})
+}
+
 func (client *Client) decodeReport(
 	id agentproto.DeploymentID,
 	sealed []byte,
