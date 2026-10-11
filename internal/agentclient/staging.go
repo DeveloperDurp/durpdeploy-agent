@@ -23,8 +23,6 @@ func (client *Client) Staging(
 	claim agentproto.PollResponse,
 	upload *os.File,
 ) (*os.File, error) {
-	transferCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
 	path := "download"
 	if upload != nil {
 		path = "upload"
@@ -34,7 +32,10 @@ func (client *Client) Staging(
 		10,
 	) + "/staging/" + path
 	transport := *client.http
-	transport.Timeout = 5 * time.Minute
+	transport.Timeout = 0
+	transport.Transport = stagingTransport{
+		source: client.http.Transport, idleTimeout: 5 * time.Minute,
+	}
 	for attempt := 0; ; attempt++ {
 		var body io.Reader
 		var size int64
@@ -46,7 +47,7 @@ func (client *Client) Staging(
 			}
 		}
 		request, err := http.NewRequestWithContext(
-			transferCtx,
+			ctx,
 			http.MethodPost,
 			endpoint,
 			body,
@@ -59,7 +60,7 @@ func (client *Client) Staging(
 		request.Header.Set("Content-Type", "application/x-tar")
 		response, err := transport.Do(request)
 		if err != nil {
-			if err := client.wait(transferCtx, attempt, 0); err != nil {
+			if err := client.wait(ctx, attempt, 0); err != nil {
 				return nil, err
 			}
 			continue
@@ -72,7 +73,7 @@ func (client *Client) Staging(
 			if closeErr != nil {
 				return nil, closeErr
 			}
-			if err := client.wait(transferCtx, attempt, 0); err != nil {
+			if err := client.wait(ctx, attempt, 0); err != nil {
 				return nil, err
 			}
 			continue
@@ -106,7 +107,7 @@ func (client *Client) Staging(
 			if err := file.Close(); err != nil {
 				return nil, err
 			}
-			if err := client.wait(transferCtx, attempt, 0); err != nil {
+			if err := client.wait(ctx, attempt, 0); err != nil {
 				return nil, err
 			}
 			continue
@@ -122,7 +123,7 @@ func (client *Client) Staging(
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
 			return nil, errors.Join(err, file.Close())
 		}
-		if err := staging.Unpack(transferCtx, file, ""); err != nil {
+		if err := staging.Unpack(ctx, file, ""); err != nil {
 			return nil, errors.Join(
 				fmt.Errorf("validate staging input: %w", err),
 				file.Close(),
