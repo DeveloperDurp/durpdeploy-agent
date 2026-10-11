@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
@@ -36,6 +37,11 @@ func (e *Executor) Execute(
 	}
 	job.environment = environment
 	if job.stageDirectory != "" {
+		job.stageDirectory, err = filepath.Abs(job.stageDirectory)
+		if err != nil {
+			return fmt.Errorf("resolve host staging directory: %w",
+				errors.Join(ErrInvalidStepExecution, err))
+		}
 		job.environment["DURPDEPLOY_STAGE_DIR"] = job.stageDirectory
 	}
 	if job.stageVolume != "" {
