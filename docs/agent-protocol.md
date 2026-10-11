@@ -32,6 +32,14 @@ If host cleanup fails, the agent saves a failed result and stops polling.
 The agent removes retained staging before it delivers the saved result.
 
 Host steps receive a private `DURPDEPLOY_STAGE_DIR` directory.
+Staged host attempts run under a dedicated Linux child subreaper.
+The supervisor stops and reaps every remaining descendant before publication, retry, or purge.
+This includes processes that change sessions or double-fork.
+Cancellation uses the same confirmed process cleanup.
+If confirmation fails, the agent retains staging and exits for service-wide cleanup.
+The restarted service purges staging before it delivers the saved failed result.
+The supplied systemd unit uses `KillMode=control-group` for this restart boundary.
+Embedded executors must call `EnableHostSupervisor` and dispatch `HostSupervisorMain` before application startup.
 Container steps receive `DURPDEPLOY_STAGE_DIR=/stage` through a private tmpfs volume.
 Variable selections cannot remove this variable.
 The server combines independent parallel changes and deletions, but conflicting changes fail the deployment.

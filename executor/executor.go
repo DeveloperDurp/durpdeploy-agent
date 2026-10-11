@@ -123,6 +123,7 @@ type Executor struct {
 	deadlineGrace     func()
 	killGroup         func(int)
 	container         *ContainerExecutor
+	hostSupervisor    string
 }
 
 // NewExecutorWithContainers keeps host execution inside its existing boundary.
@@ -181,7 +182,17 @@ func (e *Executor) runAttempt(
 	for key, value := range job.environment {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
 	}
-	cmd.WaitDelay = 15 * time.Second
+	var supervision *hostCommand
+	if job.stageDirectory != "" {
+		supervision, err = e.supervisedCommand(stepCtx, cmd)
+		if err != nil {
+			return err
+		}
+		defer func() { err = errors.Join(err, supervision.close()) }()
+		cmd = supervision.command
+	} else {
+		cmd.WaitDelay = 15 * time.Second
+	}
 
 	var output bytes.Buffer
 	cmd.Stdout = io.MultiWriter(&output, writer)
@@ -200,16 +211,17 @@ func (e *Executor) runAttempt(
 		}
 	}
 	err = cmd.Wait()
-	if err != nil && stepCtx.Err() != nil {
+	if supervision != nil {
+		if cleanupErr := supervision.confirm(); cleanupErr != nil {
+			return errors.Join(err, cleanupErr)
+		}
+	} else if err != nil && stepCtx.Err() != nil {
 		cleanupDone := make(chan struct{})
 		go func(pgid int) {
 			defer close(cleanupDone)
 			e.killAfterDeadline(pgid)
 		}(pgid)
 		<-cleanupDone
-	} else if job.stageDirectory != "" {
-		// Stop background staging writers before snapshotting or purging.
-		killProcessGroup(pgid)
 	}
 	if flushErr := writer.flush(); flushErr != nil {
 		return flushErr

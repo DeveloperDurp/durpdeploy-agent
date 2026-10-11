@@ -24,6 +24,7 @@ EnvironmentFile=/etc/durpdeploy-agent.env
 ExecStart=/usr/local/bin/durpdeploy-agent
 Restart=on-failure
 RestartSec=5s
+KillMode=control-group
 StateDirectory=durpdeploy-agent
 StateDirectoryMode=0700
 PrivateTmp=true

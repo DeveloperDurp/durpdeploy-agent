@@ -60,6 +60,9 @@ const (
 )
 
 func main() {
+	if status, handled := runner.HostSupervisorMain(); handled {
+		os.Exit(status)
+	}
 	if len(os.Args) == 2 &&
 		(os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "-h") {
 		fmt.Fprint(os.Stdout, agentHelp())
@@ -115,6 +118,9 @@ func run(ctx context.Context, configuration config) error {
 				err = runPaired(ctx, client)
 			}
 			client.Close()
+		}
+		if errors.Is(err, runner.ErrHostProcessCleanup) {
+			return err
 		}
 		if ctx.Err() != nil {
 			break

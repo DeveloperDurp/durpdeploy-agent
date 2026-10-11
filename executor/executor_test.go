@@ -16,7 +16,11 @@ import (
 
 func newExecutorForTest(t *testing.T) *Executor {
 	t.Helper()
-	return &Executor{boundaryValidated: true}
+	executor := &Executor{boundaryValidated: true}
+	if err := executor.EnableHostSupervisor(); err != nil {
+		t.Fatal(err)
+	}
+	return executor
 }
 
 func TestExecutor_Succeeds_when_script_exits_zero(t *testing.T) {
@@ -280,7 +284,10 @@ func TestExecutor_ExecuteSteps_reports_finished_step(t *testing.T) {
 			{Name: "fail", ScriptBody: "exit 1"},
 		},
 		StepFinished: func(step Step, stepErr error) {
-			finished = append(finished, step.Name+":"+fmt.Sprint(stepErr == nil))
+			finished = append(
+				finished,
+				step.Name+":"+fmt.Sprint(stepErr == nil),
+			)
 		},
 	})
 
