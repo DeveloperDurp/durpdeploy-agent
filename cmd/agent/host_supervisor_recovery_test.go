@@ -20,15 +20,37 @@ import (
 )
 
 func TestHostSupervisorFailureStopsAgentUntilRestart(t *testing.T) {
+	for _, root := range []string{"staging", "retained", "retained-workspace"} {
+		t.Run(root, func(t *testing.T) {
+			testHostSupervisorFailureRecovery(t, root)
+		})
+	}
+}
+
+func testHostSupervisorFailureRecovery(t *testing.T, root string) {
+	t.Helper()
+	script := `printf retained > "$DURPDEPLOY_STAGE_DIR/data"; `
+	if root == "retained" {
+		script += `root=$(dirname "$(dirname "$DURPDEPLOY_STAGE_DIR")"); mv "$root" "$(dirname "$root")/retained"; `
+	}
+	if root == "retained-workspace" {
+		script += `root=$(dirname "$(dirname "$DURPDEPLOY_STAGE_DIR")"); mv "$DURPDEPLOY_STAGE_DIR" "$(dirname "$root")/retained-workspace"; `
+	}
 	fixture := newAgentSubprocessFixture(
 		t,
-		`printf retained > "$DURPDEPLOY_STAGE_DIR/data"; kill -KILL "$PPID"; exit 0`,
+		script+`kill -KILL "$PPID"; exit 0`,
 	)
 	client, _ := claimLifecycleClient(t, fixture)
 	client.Close()
 	fixture.payload.Release.Staging = true
 	fixture.payload.Release.Steps[0].ExecutionMode = ""
 	fixture.payload.Release.Steps[0].ContainerImage = ""
+	fixture.resultReceived = func(agentproto.ResultRequest) {
+		entries, err := os.ReadDir(filepath.Join(fixture.stateDir, root))
+		if err != nil || len(entries) != 0 {
+			t.Errorf("replayed result before purge: %v %v", entries, err)
+		}
+	}
 	var archive bytes.Buffer
 	if err := tar.NewWriter(&archive).Close(); err != nil {
 		t.Fatal(err)
@@ -63,7 +85,12 @@ func TestHostSupervisorFailureStopsAgentUntilRestart(t *testing.T) {
 	default:
 	}
 	files, err := filepath.Glob(filepath.Join(fixture.stateDir,
-		"staging", "claim-*", "workspace", "data"))
+		root, "claim-*", "workspace", "data"))
+	if root == "retained-workspace" {
+		files, err = filepath.Glob(
+			filepath.Join(fixture.stateDir, root, "data"),
+		)
+	}
 	if err != nil || len(files) != 1 {
 		t.Fatalf("unconfirmed cleanup purged staging: %v %v", files, err)
 	}
@@ -93,5 +120,11 @@ func TestHostSupervisorFailureStopsAgentUntilRestart(t *testing.T) {
 	entries, err := os.ReadDir(filepath.Join(fixture.stateDir, "staging"))
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("restart retained staging: %v %v", entries, err)
+	}
+	if root != "staging" {
+		entries, err := os.ReadDir(filepath.Join(fixture.stateDir, root))
+		if err != nil || len(entries) != 0 {
+			t.Fatalf("restart retained renamed staging: %v %v", entries, err)
+		}
 	}
 }

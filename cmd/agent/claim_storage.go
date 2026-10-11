@@ -131,10 +131,16 @@ func resumeCleanupResult(
 			)
 		}
 		if marker.HostStagingCleanup {
+			for _, root := range marker.HostStagingRoots {
+				if err := purgeRecoveredStagingRoot(root); err != nil {
+					return errors.Join(runner.ErrContainerCleanup, err)
+				}
+			}
 			if err := client.ResetStaging(); err != nil {
 				return errors.Join(runner.ErrContainerCleanup, err)
 			}
 			marker.HostStagingCleanup = false
+			marker.HostStagingRoots = nil
 			if err := writeClaimMarker(client, marker); err != nil {
 				return err
 			}

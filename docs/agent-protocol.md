@@ -38,6 +38,9 @@ This includes processes that change sessions or double-fork.
 Cancellation uses the same confirmed process cleanup.
 If confirmation fails, the agent retains staging and exits for service-wide cleanup.
 The restarted service purges staging before it delivers the saved failed result.
+Recovery records the path, device, and inode of moved staging directories.
+Recovery rejects replacement directories and symbolic links before purge.
+The agent retains both the workspace handle and staging root handle until cleanup.
 The supplied systemd unit uses `KillMode=control-group` for this restart boundary.
 Embedded executors must call `EnableHostSupervisor` and dispatch `HostSupervisorMain` before application startup.
 Container steps receive `DURPDEPLOY_STAGE_DIR=/stage` through a private tmpfs volume.

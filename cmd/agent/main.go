@@ -47,6 +47,7 @@ type claimMarker struct {
 	SocketURL            string                      `json:"socket_url,omitempty"`
 	CleanupAcknowledged  bool                        `json:"cleanup_acknowledged,omitempty"`
 	HostStagingCleanup   bool                        `json:"host_staging_cleanup,omitempty"`
+	HostStagingRoots     []*stagingRootRecord        `json:"host_staging_roots,omitempty"`
 	TerminalReport       json.RawMessage             `json:"terminal_report,omitempty"`
 	TerminalAcknowledged bool                        `json:"terminal_acknowledged,omitempty"`
 }

@@ -14,12 +14,14 @@ import (
 )
 
 type jobStaging struct {
-	directory string
-	parent    string
-	original  os.FileInfo
-	root      *os.Root
-	container *runner.ContainerStage
-	input     *os.File
+	directory     string
+	parent        string
+	original      os.FileInfo
+	root          *os.Root
+	workspace     *os.Root
+	recoveryRoots []*stagingRootRecord
+	container     *runner.ContainerStage
+	input         *os.File
 }
 
 func newJobStaging(
@@ -50,6 +52,9 @@ func newJobStaging(
 		return stage, err
 	}
 	stage.original, err = os.Lstat(stage.directory)
+	if err == nil {
+		stage.workspace, err = os.OpenRoot(stage.directory)
+	}
 	return stage, err
 }
 
@@ -121,12 +126,18 @@ func (s *jobStaging) close(
 	if s.container != nil {
 		result = s.container.Close(ctx)
 	}
-	// The handle retains the owned tree when a script renames its root.
-	if s.root != nil {
-		if err := staging.PurgeRoot(s.root); err != nil {
+	if err := s.recordRoots(); err != nil {
+		result = errors.Join(result, runner.ErrContainerCleanup, err)
+	}
+	// Both handles retain owned files when a script moves either directory.
+	for _, root := range []*os.Root{s.workspace, s.root} {
+		if root == nil {
+			continue
+		}
+		if err := staging.PurgeRoot(root); err != nil {
 			result = errors.Join(result, runner.ErrContainerCleanup, err)
 		}
-		result = errors.Join(result, s.root.Close())
+		result = errors.Join(result, root.Close())
 	}
 	// Claims execute serially, so purge replacement trees before polling.
 	if err := client.ResetStaging(); err != nil {
