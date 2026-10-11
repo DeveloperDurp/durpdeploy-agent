@@ -94,6 +94,9 @@ func (client *Client) Staging(
 				response.Body.Close(),
 			)
 		}
+		if response.ContentLength > staging.MaxArchive {
+			return nil, errors.Join(staging.ErrInvalid, response.Body.Close())
+		}
 		file, err := os.CreateTemp(
 			filepath.Join(client.stateDir, "staging"),
 			"input-*.tar",
