@@ -23,10 +23,11 @@ The agent keeps heartbeats active during transfers and removes staging before re
 
 Active transfers have no fixed total timeout.
 Requests stop after five minutes without transfer progress.
+Local archive write failures end the job without another download attempt.
 
 Host workspaces use private claim directories.
 The agent rejects a renamed or replaced workspace before publication.
-The agent removes the claim directory, including renamed workspaces.
+The agent clears its serialized staging root, including workspaces moved outside their claim directories.
 If host cleanup fails, the agent saves a failed result and stops polling.
 The agent removes retained staging before it delivers the saved result.
 

@@ -103,6 +103,10 @@ func (client *Client) Staging(
 			io.LimitReader(response.Body, staging.MaxArchive+1),
 		)
 		closeErr := response.Body.Close()
+		var writeError *os.PathError
+		if errors.As(copyErr, &writeError) && writeError.Op == "write" {
+			return nil, errors.Join(copyErr, closeErr, file.Close())
+		}
 		if err := errors.Join(copyErr, closeErr); err != nil {
 			if err := file.Close(); err != nil {
 				return nil, err
