@@ -114,6 +114,7 @@ func Unpack(
 	}
 	reader := tar.NewReader(bounded)
 	seen := make(map[string]bool)
+	declared := make(map[string]bool)
 	var total int64
 	for {
 		bounded.remaining = 16 << 20
@@ -130,9 +131,13 @@ func Unpack(
 			continue
 		}
 		header.Name = name
+		if declared[name] {
+			return ErrInvalid
+		}
 		if err := validateEntry(header, seen, total); err != nil {
 			return err
 		}
+		declared[name] = true
 		total += header.Size
 		bounded.remaining = header.Size
 		if err := restoreEntry(root, header, reader); err != nil {
@@ -157,14 +162,15 @@ func validateEntry(
 	if !validName(name) {
 		return ErrInvalid
 	}
-	if _, exists := seen[name]; exists {
+	isDir := header.Typeflag == tar.TypeDir
+	if priorDirectory, exists := seen[name]; exists &&
+		(!priorDirectory || !isDir) {
 		return ErrInvalid
 	}
-	if len(seen) >= MaxFiles || header.Size < 0 ||
+	if header.Size < 0 ||
 		header.Size > MaxBytes-total {
 		return ErrInvalid
 	}
-	isDir := header.Typeflag == tar.TypeDir
 	if !isDir && header.Typeflag != tar.TypeReg &&
 		header.Typeflag != tar.TypeRegA ||
 		isDir && header.Size != 0 {
@@ -172,9 +178,16 @@ func validateEntry(
 	}
 	seen[name] = isDir
 	for parent := path.Dir(name); parent != "."; parent = path.Dir(parent) {
+		if len(seen) > MaxFiles {
+			return ErrInvalid
+		}
 		if dir, exists := seen[parent]; exists && !dir {
 			return ErrInvalid
 		}
+		seen[parent] = true
+	}
+	if len(seen) > MaxFiles {
+		return ErrInvalid
 	}
 	return nil
 }
