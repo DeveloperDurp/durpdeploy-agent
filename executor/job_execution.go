@@ -22,6 +22,10 @@ func (e *Executor) Execute(
 	if err := (Step{ExecutionMode: job.executionMode, ContainerImage: job.containerImage, VariableNames: job.variableNames}).ValidateExecution(); err != nil {
 		return err
 	}
+	if (job.executionMode == agentproto.ExecutionContainer && job.stageDirectory != "") ||
+		(job.executionMode != agentproto.ExecutionContainer && job.stageVolume != "") {
+		return ErrInvalidStepExecution
+	}
 	environment, err := selectStepEnvironment(
 		job.environment,
 		job.variableNames,
