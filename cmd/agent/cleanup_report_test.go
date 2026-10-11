@@ -68,6 +68,7 @@ func testCleanupReplay(t *testing.T, change string, phase claimPhase) {
 		[]byte(`#!/bin/bash
 while [[ "$1" == --* ]]; do shift; done
 case "$1" in
+volume) ;;
 info) printf '%s' '{"OSType":"linux","MemoryLimit":true,"CpuCfsQuota":true,"PidsLimit":true,"SecurityOptions":["name=seccomp,profile=builtin"],"host":{"os":"linux","cgroupControllers":["cpu","memory","pids"],"security":{"seccompEnabled":true,"seccompProfilePath":"/usr/share/containers/seccomp.json"}}}' ;;
 ps) ;;
 *) exit 2 ;;

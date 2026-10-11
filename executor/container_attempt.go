@@ -80,6 +80,13 @@ func (r *ContainerExecutor) runAttempt(
 	} else {
 		args = append(args, "--security-opt=seccomp=builtin")
 	}
+	if job.stageVolume != "" {
+		mount := job.stageVolume + ":/stage:rw,nocopy"
+		if r.runtime == agentproto.RuntimePodman {
+			mount += ",noexec,nosuid,nodev,z"
+		}
+		args = append(args, "--volume="+mount)
+	}
 	names := make([]string, 0, len(job.environment))
 	for name := range job.environment {
 		names = append(names, name)

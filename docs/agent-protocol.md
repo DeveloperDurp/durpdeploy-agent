@@ -7,6 +7,26 @@ listener, database state, runner authorization, or fallback path.
 
 ## Endpoints and payloads
 
+Deployment staging uses the optional `X-DurpDeploy-Staging: staging/1` poll capability.
+The encrypted release object contains `staging: true` when the job requires staging transfer.
+These jobs contain exactly one step.
+Download the input TAR from `POST /agent/v1/deployments/{id}/staging/download`.
+Upload the final TAR to `POST /agent/v1/deployments/{id}/staging/upload` before reporting success.
+Include the live claim token in `X-DurpDeploy-Claim` on both requests.
+
+Downloads include `Content-Length` and `X-Artifact-SHA256`.
+Uploads return `204` and accept identical retries.
+Changed retries and expired claims return `409`.
+Invalid archives return `422`, and oversized bodies return `413`.
+Each snapshot permits 512 MiB of regular file content, 20,000 entries, and a 544 MiB TAR body.
+The agent keeps heartbeats active during transfers and removes staging before reporting an outcome.
+
+Host steps receive a private `DURPDEPLOY_STAGE_DIR` directory.
+Container steps receive `DURPDEPLOY_STAGE_DIR=/stage` through a private tmpfs volume.
+Variable selections cannot remove this variable.
+The server combines independent parallel changes and deletions, but conflicting changes fail the deployment.
+The server purges encrypted transfer snapshots when the deployment ends.
+
 All JSON requests are exactly one object and require a present, non-null
 protocol. They reject unknown fields, trailing JSON values, malformed JSON,
 and unsupported protocol values. Pairing remains `agent/1`. Paired lifecycle

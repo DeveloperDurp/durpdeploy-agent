@@ -174,6 +174,10 @@ func (r *ContainerExecutor) Ready(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := r.cleanStagingVolumes(checkCtx); err != nil {
+		r.cleanupErr = err
+		return err
+	}
 	remaining, err := r.ownedContainers(checkCtx)
 	if err != nil || len(remaining) != 0 {
 		r.cleanupErr = fmt.Errorf(

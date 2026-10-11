@@ -3,9 +3,12 @@ package agentclient
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/DeveloperDurp/durpdeploy-agent/executor"
+	"github.com/DeveloperDurp/durpdeploy-agent/internal/staging"
 	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
 	"github.com/DeveloperDurp/durpdeploy-agent/state"
 	"github.com/DeveloperDurp/durpdeploy-agent/transport"
@@ -31,6 +34,13 @@ func NewPaired(
 	identity, err := agenttls.LoadExisting(stateDir)
 	if err != nil {
 		return nil, fmt.Errorf("load paired agent identity: %w", err)
+	}
+	stageDir := filepath.Join(stateDir, "staging")
+	if err := staging.Purge(stageDir); err != nil {
+		return nil, fmt.Errorf("purge orphaned staging: %w", err)
+	}
+	if err := os.Mkdir(stageDir, 0700); err != nil {
+		return nil, err
 	}
 	client := &Client{
 		serverURL:    state.ServerURL,

@@ -1,0 +1,149 @@
+package agentclient
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"time"
+
+	"github.com/DeveloperDurp/durpdeploy-agent/internal/staging"
+	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
+)
+
+// Staging exchanges binary archives while heartbeats keep the claim live.
+func (client *Client) Staging(
+	ctx context.Context,
+	claim agentproto.PollResponse,
+	upload *os.File,
+) (*os.File, error) {
+	transferCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	path := "download"
+	if upload != nil {
+		path = "upload"
+	}
+	endpoint := client.serverURL + "/agent/v1/deployments/" + strconv.FormatInt(
+		int64(claim.DeploymentID),
+		10,
+	) + "/staging/" + path
+	transport := *client.http
+	transport.Timeout = 5 * time.Minute
+	for attempt := 0; ; attempt++ {
+		var body io.Reader
+		var size int64
+		if upload != nil {
+			info, err := upload.Stat()
+			if err != nil {
+				return nil, err
+			}
+			size = info.Size()
+			if size > staging.MaxArchive {
+				return nil, staging.ErrInvalid
+			}
+			if _, err := upload.Seek(0, io.SeekStart); err != nil {
+				return nil, err
+			}
+			body = io.NewSectionReader(upload, 0, size)
+		}
+		request, err := http.NewRequestWithContext(
+			transferCtx,
+			http.MethodPost,
+			endpoint,
+			body,
+		)
+		if err != nil {
+			return nil, err
+		}
+		request.ContentLength = size
+		request.Header.Set("X-DurpDeploy-Claim", string(claim.ClaimToken))
+		request.Header.Set("Content-Type", "application/x-tar")
+		response, err := transport.Do(request)
+		if err != nil {
+			if err := client.wait(transferCtx, attempt, 0); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if err := client.promotePin(response.TLS); err != nil {
+			return nil, errors.Join(err, response.Body.Close())
+		}
+		if retryableStatus(response.StatusCode) {
+			closeErr := response.Body.Close()
+			if closeErr != nil {
+				return nil, closeErr
+			}
+			if err := client.wait(transferCtx, attempt, 0); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if upload != nil && response.StatusCode == 204 {
+			return nil, response.Body.Close()
+		}
+		if upload != nil {
+			return nil, errors.Join(
+				&StatusError{Status: response.StatusCode},
+				response.Body.Close(),
+			)
+		}
+		if response.StatusCode != 200 {
+			return nil, errors.Join(
+				&StatusError{Status: response.StatusCode},
+				response.Body.Close(),
+			)
+		}
+		file, err := os.CreateTemp(
+			filepath.Join(client.stateDir, "staging"),
+			"input-*.tar",
+		)
+		if err != nil {
+			return nil, errors.Join(err, response.Body.Close())
+		}
+		if err := os.Remove(file.Name()); err != nil {
+			return nil, errors.Join(err, file.Close(), response.Body.Close())
+		}
+		hash := sha256.New()
+		n, copyErr := io.Copy(
+			io.MultiWriter(file, hash),
+			io.LimitReader(response.Body, staging.MaxArchive+1),
+		)
+		closeErr := response.Body.Close()
+		if err := errors.Join(copyErr, closeErr); err != nil {
+			if err := file.Close(); err != nil {
+				return nil, err
+			}
+			if err := client.wait(transferCtx, attempt, 0); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if n > staging.MaxArchive || response.ContentLength != n ||
+			hex.EncodeToString(
+				hash.Sum(nil),
+			) != response.Header.Get(
+				"X-Artifact-SHA256",
+			) {
+			return nil, errors.Join(staging.ErrInvalid, file.Close())
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return nil, errors.Join(err, file.Close())
+		}
+		if err := staging.Unpack(transferCtx, file, ""); err != nil {
+			return nil, errors.Join(
+				fmt.Errorf("validate staging input: %w", err),
+				file.Close(),
+			)
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return nil, errors.Join(err, file.Close())
+		}
+		return file, nil
+	}
+}

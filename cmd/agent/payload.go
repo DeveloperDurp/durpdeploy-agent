@@ -19,6 +19,7 @@ type deploymentPayload struct {
 }
 
 type releasePayload struct {
+	Staging   bool          `json:"staging,omitempty"`
 	ID        int64         `json:"id"`
 	ProjectID int64         `json:"project_id"`
 	Version   string        `json:"version"`
@@ -50,6 +51,11 @@ func decodePayload(raw []byte, deploymentID int64) (deploymentPayload, error) {
 	}
 	if payload.DeploymentID != deploymentID {
 		return deploymentPayload{}, errors.New("deployment payload ID mismatch")
+	}
+	if payload.Release.Staging && len(payload.Release.Steps) != 1 {
+		return deploymentPayload{}, errors.New(
+			"staging requires one claimed step",
+		)
 	}
 	for index, step := range payload.Release.Steps {
 		if err := step.ValidateExecution(); err != nil {
@@ -101,6 +107,10 @@ func (payload deploymentPayload) environment() (map[string]string, []string, err
 	environment := make(map[string]string, len(payload.Variables))
 	secrets := make([]string, 0, len(payload.Variables))
 	for _, variable := range payload.Variables {
+		if variable.Name == "DURPDEPLOY_STAGE_DIR" ||
+			variable.Name == "DURPDEPLOY_APPROVED_DIR" {
+			return nil, nil, errors.New("reserved deployment variable")
+		}
 		if variable.Name == "" {
 			return nil, nil, errors.New("invalid deployment variable")
 		}
