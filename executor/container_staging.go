@@ -20,6 +20,7 @@ const quietFlag = "--quiet"
 
 type ContainerStage struct {
 	Volume string
+	volume string
 	keeper string
 	runner *ContainerExecutor
 }
@@ -39,8 +40,12 @@ func (r *ContainerExecutor) NewStage(
 	)*int64(
 		os.Getpagesize(),
 	)
-	stage = &ContainerStage{Volume: name, keeper: name + "-keeper", runner: r}
+	stage = &ContainerStage{
+		Volume: name, volume: name, keeper: name + "-keeper", runner: r,
+	}
+	r.mu.Lock()
 	defer func() {
+		r.mu.Unlock()
 		if result != nil {
 			result = errors.Join(
 				result,
@@ -115,10 +120,19 @@ func (r *ContainerExecutor) NewStage(
 	if err := command.Run(); err != nil {
 		return stage, err
 	}
+	if r.stages == nil {
+		r.stages = make(map[string]bool)
+	}
+	r.stages[name] = true
 	return stage, nil
 }
 
 func (s *ContainerStage) Export(ctx context.Context, target io.Writer) error {
+	s.runner.mu.Lock()
+	defer s.runner.mu.Unlock()
+	if !s.runner.stages[s.volume] {
+		return ErrInvalidStepExecution
+	}
 	command := s.runner.command(
 		ctx,
 		"exec",
@@ -150,6 +164,9 @@ func (s *ContainerStage) Export(ctx context.Context, target io.Writer) error {
 }
 
 func (s *ContainerStage) Close(ctx context.Context) error {
+	s.runner.mu.Lock()
+	defer s.runner.mu.Unlock()
+	delete(s.runner.stages, s.volume)
 	cleanupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	err := s.runner.remove(cleanupCtx, s.keeper)
@@ -159,10 +176,10 @@ func (s *ContainerStage) Close(ctx context.Context) error {
 		err = errors.Join(err, ErrContainerCleanup)
 	}
 	for _, name := range strings.Fields(string(volumes)) {
-		if name != s.Volume {
+		if name != s.volume {
 			continue
 		}
-		if s.runner.command(cleanupCtx, "volume", "rm", "--force", s.Volume).
+		if s.runner.command(cleanupCtx, "volume", "rm", "--force", s.volume).
 			Run() != nil {
 			err = errors.Join(
 				err,
@@ -171,9 +188,7 @@ func (s *ContainerStage) Close(ctx context.Context) error {
 		}
 	}
 	if err != nil {
-		s.runner.mu.Lock()
 		s.runner.cleanupErr = err
-		s.runner.mu.Unlock()
 	}
 	return err
 }

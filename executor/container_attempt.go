@@ -27,6 +27,9 @@ func (r *ContainerExecutor) runAttempt(
 	if r.cleanupErr != nil {
 		return r.cleanupErr
 	}
+	if job.stageVolume != "" && !r.stages[job.stageVolume] {
+		return ErrInvalidStepExecution
+	}
 	timeout := job.timeout
 	if timeout <= 0 {
 		timeout = defaultStepTimeout
