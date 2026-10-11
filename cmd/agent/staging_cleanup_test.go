@@ -35,7 +35,7 @@ func testHostStagingCleanup(
 	}
 	fixture := newAgentSubprocessFixture(
 		t,
-		`printf retained > "$DURPDEPLOY_STAGE_DIR/data"; stage_parent="$(dirname "$DURPDEPLOY_STAGE_DIR")"; if [ "$(basename "$stage_parent")" != staging ]; then stage_parent="$(dirname "$stage_parent")"; fi; chmod 000 "$stage_parent"; exit 7`,
+		`printf retained > "$DURPDEPLOY_STAGE_DIR/data"; chmod 000 "$(dirname "$(dirname "$(dirname "$DURPDEPLOY_STAGE_DIR")")")"; exit 7`,
 	)
 	client, _ := claimLifecycleClient(t, fixture)
 	client.Close()
@@ -48,7 +48,7 @@ func testHostStagingCleanup(
 	fixture.payload.Release.Steps[0].ExecutionMode = ""
 	fixture.payload.Release.Steps[0].ContainerImage = ""
 	stageDir := filepath.Join(fixture.stateDir, "staging")
-	t.Cleanup(func() { _ = os.Chmod(stageDir, 0700) })
+	t.Cleanup(func() { _ = os.Chmod(fixture.stateDir, 0700) })
 	var input bytes.Buffer
 	if err := tar.NewWriter(&input).Close(); err != nil {
 		t.Fatal(err)
@@ -87,6 +87,9 @@ func testHostStagingCleanup(
 	case <-fixture.pollAgain:
 		t.Fatal("polled with retained host staging")
 	default:
+	}
+	if err := os.Chmod(fixture.stateDir, 0700); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := os.Stat(
 		filepath.Join(fixture.stateDir, claimFileName),
