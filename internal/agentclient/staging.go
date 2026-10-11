@@ -33,6 +33,9 @@ func (client *Client) Staging(
 	) + "/staging/" + path
 	transport := *client.http
 	transport.Timeout = 0
+	transport.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
 	transport.Transport = stagingTransport{
 		source: client.http.Transport, idleTimeout: 5 * time.Minute,
 	}
