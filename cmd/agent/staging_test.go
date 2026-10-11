@@ -16,7 +16,7 @@ import (
 )
 
 func TestClaimStagingPublishesBeforeResultAndPurges(t *testing.T) {
-	for _, scenario := range []string{"success", "upload-conflict", "invalid-output", "renamed-directory"} {
+	for _, scenario := range []string{"success", "upload-conflict", "invalid-output", "renamed-directory", "escaped-directory"} {
 		t.Run(scenario, func(t *testing.T) {
 			script := `test "$(cat "$DURPDEPLOY_STAGE_DIR/input")" = shared; rm "$DURPDEPLOY_STAGE_DIR/input"; printf result > "$DURPDEPLOY_STAGE_DIR/output"`
 			if scenario == "invalid-output" {
@@ -24,6 +24,9 @@ func TestClaimStagingPublishesBeforeResultAndPurges(t *testing.T) {
 			}
 			if scenario == "renamed-directory" {
 				script += `; mv "$DURPDEPLOY_STAGE_DIR" "$DURPDEPLOY_STAGE_DIR-renamed"; mkdir "$DURPDEPLOY_STAGE_DIR"; printf incorrect > "$DURPDEPLOY_STAGE_DIR/output"`
+			}
+			if scenario == "escaped-directory" {
+				script += `; mv "$DURPDEPLOY_STAGE_DIR" "$(dirname "$(dirname "$DURPDEPLOY_STAGE_DIR")")/retained"`
 			}
 			fixture := newAgentSubprocessFixture(t, script)
 			client, _ := claimLifecycleClient(t, fixture)
@@ -108,7 +111,9 @@ func TestClaimStagingPublishesBeforeResultAndPurges(t *testing.T) {
 			mu.Lock()
 			body := append([]byte(nil), uploaded...)
 			mu.Unlock()
-			if scenario == "invalid-output" || scenario == "renamed-directory" {
+			if scenario == "invalid-output" ||
+				scenario == "renamed-directory" ||
+				scenario == "escaped-directory" {
 				if len(body) != 0 {
 					t.Fatal("published invalid staging output")
 				}

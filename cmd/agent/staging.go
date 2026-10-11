@@ -108,12 +108,16 @@ func (s *jobStaging) publish(
 	return err
 }
 
-func (s *jobStaging) close(ctx context.Context) error {
+func (s *jobStaging) close(
+	ctx context.Context,
+	client *agentclient.Client,
+) error {
 	var result error
 	if s.container != nil {
 		result = s.container.Close(ctx)
 	}
-	if err := staging.Purge(s.parent); err != nil {
+	// Claims execute serially, so purge workspaces moved within the staging root.
+	if err := client.ResetStaging(); err != nil {
 		result = errors.Join(result, runner.ErrContainerCleanup, err)
 	}
 	return errors.Join(result, s.input.Close())

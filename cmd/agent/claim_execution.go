@@ -171,7 +171,10 @@ func executeClaim(
 		}
 	}
 	if stage != nil {
-		err = errors.Join(err, stage.close(context.WithoutCancel(executionCtx)))
+		err = errors.Join(
+			err,
+			stage.close(context.WithoutCancel(executionCtx), client),
+		)
 	}
 	cancel()
 	<-heartbeatDone
