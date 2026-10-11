@@ -130,6 +130,15 @@ func resumeCleanupResult(
 				"pending claim contains conflicting recovery reports",
 			)
 		}
+		if marker.HostStagingCleanup {
+			if err := client.ResetStaging(); err != nil {
+				return errors.Join(runner.ErrContainerCleanup, err)
+			}
+			marker.HostStagingCleanup = false
+			if err := writeClaimMarker(client, marker); err != nil {
+				return err
+			}
+		}
 		if !marker.TerminalAcknowledged {
 			if err := reportCompletedClaim(ctx, client, &marker); err != nil {
 				return err
@@ -151,30 +160,6 @@ func resumeCleanupResult(
 	result, err := client.DecodeCleanupReport(id, marker.CleanupResult)
 	if err != nil {
 		return err
-	}
-	if marker.HostStagingCleanup {
-		if marker.Runtime != "" || marker.SocketURL != "" {
-			return fmt.Errorf(
-				"host staging recovery contains container configuration",
-			)
-		}
-		if err := client.ResetStaging(); err != nil {
-			return errors.Join(runner.ErrContainerCleanup, err)
-		}
-		if !marker.CleanupAcknowledged {
-			if err := client.ReportCleanup(
-				ctx,
-				id,
-				marker.CleanupResult,
-			); err != nil {
-				return err
-			}
-			marker.CleanupAcknowledged = true
-			if err := writeClaimMarker(client, marker); err != nil {
-				return err
-			}
-		}
-		return clearClaim(client)
 	}
 	if client.ContainerExecutor() == nil {
 		return fmt.Errorf(

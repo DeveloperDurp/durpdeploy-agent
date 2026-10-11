@@ -159,6 +159,9 @@ func executeClaim(
 				client.ContainerExecutor(),
 				&config,
 			)
+			if err == nil && stage.container == nil {
+				err = persistHostStagingCleanup(client, claim)
+			}
 		}
 		if err == nil {
 			err = executor.ExecuteSteps(executionCtx, config)
@@ -189,7 +192,7 @@ func executeClaim(
 		if stage != nil && stage.container == nil {
 			return errors.Join(
 				err,
-				reportHostStagingCleanup(reportCtx, client, claim),
+				persistHostStagingCleanup(client, claim),
 			)
 		}
 		if reportErr := client.Result(

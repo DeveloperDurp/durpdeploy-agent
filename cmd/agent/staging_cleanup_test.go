@@ -75,20 +75,13 @@ func testHostStagingCleanup(
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	err = runPaired(ctx, client)
-	var status *agentclient.StatusError
-	if !errors.Is(err, executor.ErrContainerCleanup) ||
-		(!accepted && (!errors.As(err, &status) || status.Status != 409)) {
+	if !errors.Is(err, executor.ErrContainerCleanup) {
 		t.Fatalf("cleanup conflict lost its recovery barrier: %v", err)
 	}
-	if accepted {
-		result := <-fixture.result
-		if result.State != agentproto.ResultCleanupUnconfirmed ||
-			result.Protocol != agentproto.AgentV3 {
-			t.Fatalf(
-				"host cleanup report used an invalid protocol: %s",
-				result.Protocol,
-			)
-		}
+	select {
+	case <-fixture.result:
+		t.Fatal("host cleanup reported completion before purging staging")
+	default:
 	}
 	select {
 	case <-fixture.pollAgain:
@@ -123,5 +116,13 @@ func testHostStagingCleanup(
 	resumeCancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("stop recovered polling: %v", err)
+	}
+	result := <-fixture.result
+	if result.State != agentproto.ResultFailed ||
+		result.Protocol != agentproto.AgentV2 {
+		t.Fatalf(
+			"recovery changed the original host claim outcome: %s",
+			result.State,
+		)
 	}
 }
