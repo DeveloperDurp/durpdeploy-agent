@@ -21,6 +21,15 @@ Invalid archives return `422`, and oversized bodies return `413`.
 Each snapshot permits 512 MiB of regular file content, 20,000 entries, and a 544 MiB TAR body.
 The agent keeps heartbeats active during transfers and removes staging before reporting an outcome.
 
+Active transfers have no fixed total timeout.
+Requests stop after five minutes without transfer progress.
+
+Host workspaces use private claim directories.
+The agent rejects a renamed or replaced workspace before publication.
+The agent removes the claim directory, including renamed workspaces.
+If host cleanup fails, the agent saves a failed result and stops polling.
+The agent removes retained staging before it delivers the saved result.
+
 Host steps receive a private `DURPDEPLOY_STAGE_DIR` directory.
 Container steps receive `DURPDEPLOY_STAGE_DIR=/stage` through a private tmpfs volume.
 Variable selections cannot remove this variable.
