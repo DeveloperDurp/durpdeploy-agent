@@ -130,18 +130,18 @@ func resumeCleanupResult(
 				"pending claim contains conflicting recovery reports",
 			)
 		}
-		request, err := client.DecodeTerminalReport(id, marker.TerminalReport)
-		if err != nil {
-			return err
-		}
 		if !marker.TerminalAcknowledged {
-			if err := client.ReportTerminal(ctx, id, request); err != nil {
+			if err := reportCompletedClaim(ctx, client, &marker); err != nil {
 				return err
 			}
 			marker.TerminalAcknowledged = true
 			if err := writeClaimMarker(client, marker); err != nil {
 				return err
 			}
+		} else if _, err := client.DecodeTerminalReport(
+			id, marker.TerminalReport,
+		); err != nil {
+			return err
 		}
 		return clearClaim(client)
 	}
