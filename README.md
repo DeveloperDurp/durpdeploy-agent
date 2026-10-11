@@ -19,9 +19,9 @@ make check
 
 CI publishes `ghcr.io/developerdurp/durpdeploy-agent` for `linux/amd64` and
 `linux/arm64` after the tests and container contract pass. Pushes to `main`
-use the short commit SHA as the image tag. Pushes of `v*` tags publish the
-tag name and `latest`. Pull requests and other branches run checks without
-publishing images. Tagged releases also include standalone Linux binaries.
+publish the short commit SHA and `latest` as image tags. Pushes of `v*` tags
+publish the tag name and `latest`. Pull requests and other branches run checks
+without publishing images. Tagged releases also include standalone Linux binaries.
 
 ## Development
 
