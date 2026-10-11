@@ -15,6 +15,8 @@ import (
 
 type jobStaging struct {
 	directory string
+	parent    string
+	original  os.FileInfo
 	container *runner.ContainerStage
 	input     *os.File
 }
@@ -28,14 +30,22 @@ func newJobStaging(
 	if err != nil {
 		return nil, err
 	}
-	directory, err := os.MkdirTemp(
+	parent, err := os.MkdirTemp(
 		filepath.Join(client.StateDir(), "staging"),
 		"claim-",
 	)
 	if err != nil {
 		return nil, errors.Join(err, input.Close())
 	}
-	return &jobStaging{directory: directory, input: input}, nil
+	stage := &jobStaging{
+		directory: filepath.Join(parent, "workspace"),
+		parent:    parent, input: input,
+	}
+	if err := os.Mkdir(stage.directory, 0700); err != nil {
+		return stage, err
+	}
+	stage.original, err = os.Lstat(stage.directory)
+	return stage, err
 }
 
 func (s *jobStaging) configure(
@@ -77,6 +87,13 @@ func (s *jobStaging) publish(
 			return err
 		}
 	} else {
+		current, err := os.Lstat(s.directory)
+		if err != nil {
+			return err
+		}
+		if !os.SameFile(s.original, current) || !current.IsDir() {
+			return staging.ErrInvalid
+		}
 		if err := staging.Pack(ctx, s.directory, file); err != nil {
 			return err
 		}
@@ -96,7 +113,7 @@ func (s *jobStaging) close(ctx context.Context) error {
 	if s.container != nil {
 		result = s.container.Close(ctx)
 	}
-	if err := staging.Purge(s.directory); err != nil {
+	if err := staging.Purge(s.parent); err != nil {
 		result = errors.Join(result, runner.ErrContainerCleanup, err)
 	}
 	return errors.Join(result, s.input.Close())

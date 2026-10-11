@@ -186,6 +186,12 @@ func executeClaim(
 			agentproto.CancelAcknowledgementTimeout,
 		)
 		defer reportCancel()
+		if stage != nil && stage.container == nil {
+			return errors.Join(
+				err,
+				reportHostStagingCleanup(reportCtx, client, claim),
+			)
+		}
 		if reportErr := client.Result(
 			reportCtx,
 			claim.DeploymentID,

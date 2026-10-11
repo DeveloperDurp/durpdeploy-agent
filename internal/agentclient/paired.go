@@ -35,13 +35,6 @@ func NewPaired(
 	if err != nil {
 		return nil, fmt.Errorf("load paired agent identity: %w", err)
 	}
-	stageDir := filepath.Join(stateDir, "staging")
-	if err := staging.Purge(stageDir); err != nil {
-		return nil, fmt.Errorf("purge orphaned staging: %w", err)
-	}
-	if err := os.Mkdir(stageDir, 0700); err != nil {
-		return nil, err
-	}
 	client := &Client{
 		serverURL:    state.ServerURL,
 		stateDir:     stateDir,
@@ -55,6 +48,9 @@ func NewPaired(
 		now:          time.Now,
 		sleep:        sleep,
 		jitter:       randomInt,
+	}
+	if err := client.ResetStaging(); err != nil {
+		return nil, err
 	}
 	tlsConfig, err := client.tlsConfig()
 	if err != nil {
@@ -72,4 +68,13 @@ func NewPaired(
 		},
 	}
 	return client, nil
+}
+
+// ResetStaging purges orphaned host files before recovery or polling resumes.
+func (client *Client) ResetStaging() error {
+	stageDir := filepath.Join(client.stateDir, "staging")
+	if err := staging.Purge(stageDir); err != nil {
+		return fmt.Errorf("purge orphaned staging: %w", err)
+	}
+	return os.Mkdir(stageDir, 0700)
 }

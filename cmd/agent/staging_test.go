@@ -16,11 +16,14 @@ import (
 )
 
 func TestClaimStagingPublishesBeforeResultAndPurges(t *testing.T) {
-	for _, scenario := range []string{"success", "upload-conflict", "invalid-output"} {
+	for _, scenario := range []string{"success", "upload-conflict", "invalid-output", "renamed-directory"} {
 		t.Run(scenario, func(t *testing.T) {
 			script := `test "$(cat "$DURPDEPLOY_STAGE_DIR/input")" = shared; rm "$DURPDEPLOY_STAGE_DIR/input"; printf result > "$DURPDEPLOY_STAGE_DIR/output"`
 			if scenario == "invalid-output" {
 				script += `; ln -s /etc/passwd "$DURPDEPLOY_STAGE_DIR/link"`
+			}
+			if scenario == "renamed-directory" {
+				script += `; mv "$DURPDEPLOY_STAGE_DIR" "$DURPDEPLOY_STAGE_DIR-renamed"; mkdir "$DURPDEPLOY_STAGE_DIR"; printf incorrect > "$DURPDEPLOY_STAGE_DIR/output"`
 			}
 			fixture := newAgentSubprocessFixture(t, script)
 			client, _ := claimLifecycleClient(t, fixture)
@@ -105,7 +108,7 @@ func TestClaimStagingPublishesBeforeResultAndPurges(t *testing.T) {
 			mu.Lock()
 			body := append([]byte(nil), uploaded...)
 			mu.Unlock()
-			if scenario == "invalid-output" {
+			if scenario == "invalid-output" || scenario == "renamed-directory" {
 				if len(body) != 0 {
 					t.Fatal("published invalid staging output")
 				}

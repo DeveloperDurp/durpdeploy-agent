@@ -46,6 +46,7 @@ type claimMarker struct {
 	Runtime              agentproto.ContainerRuntime `json:"runtime,omitempty"`
 	SocketURL            string                      `json:"socket_url,omitempty"`
 	CleanupAcknowledged  bool                        `json:"cleanup_acknowledged,omitempty"`
+	HostStagingCleanup   bool                        `json:"host_staging_cleanup,omitempty"`
 	TerminalReport       json.RawMessage             `json:"terminal_report,omitempty"`
 	TerminalAcknowledged bool                        `json:"terminal_acknowledged,omitempty"`
 }

@@ -152,6 +152,30 @@ func resumeCleanupResult(
 	if err != nil {
 		return err
 	}
+	if marker.HostStagingCleanup {
+		if marker.Runtime != "" || marker.SocketURL != "" {
+			return fmt.Errorf(
+				"host staging recovery contains container configuration",
+			)
+		}
+		if err := client.ResetStaging(); err != nil {
+			return errors.Join(runner.ErrContainerCleanup, err)
+		}
+		if !marker.CleanupAcknowledged {
+			if err := client.ReportCleanup(
+				ctx,
+				id,
+				marker.CleanupResult,
+			); err != nil {
+				return err
+			}
+			marker.CleanupAcknowledged = true
+			if err := writeClaimMarker(client, marker); err != nil {
+				return err
+			}
+		}
+		return clearClaim(client)
+	}
 	if client.ContainerExecutor() == nil {
 		return fmt.Errorf(
 			"restore container configuration to reconcile pending claim: %w",
