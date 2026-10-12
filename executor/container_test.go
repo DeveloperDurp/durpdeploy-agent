@@ -39,7 +39,7 @@ case "$command" in
 info)
  if [[ -e "$fixture/unavailable" ]]; then exit 1; fi
  if [[ -e "$fixture/no-cpu" ]]; then printf '{}'; exit; fi
- printf '%%s' '{"OSType":"linux","MemoryLimit":true,"CpuCfsQuota":true,"PidsLimit":true,"SecurityOptions":["name=seccomp,profile=builtin"],"host":{"os":"linux","cgroupControllers":["cpu","memory","pids"],"security":{"seccompEnabled":true,"seccompProfilePath":"/usr/share/containers/seccomp.json"}}}' ;;
+ printf '%%s' '{"Name":"physical-docker","OSType":"linux","MemoryLimit":true,"CpuCfsQuota":true,"PidsLimit":true,"SecurityOptions":["name=seccomp,profile=builtin"],"host":{"hostname":"physical-podman","os":"linux","cgroupControllers":["cpu","memory","pids"],"security":{"seccompEnabled":true,"seccompProfilePath":"/usr/share/containers/seccomp.json"}}}' ;;
 ps)
  [[ ! -e "$fixture/owned" ]] || printf '%%s\n' owned
  ;;

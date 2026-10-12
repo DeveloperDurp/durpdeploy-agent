@@ -18,7 +18,10 @@ func TestContainer_log_delivery_failure_stops_retries(t *testing.T) {
 			calls := 0
 			failure := errors.New("log endpoint unavailable")
 			callbacks := NewCallbacks(
-				CallbacksConfig{WriteLog: func(string) error {
+				CallbacksConfig{WriteLog: func(line string) error {
+					if strings.HasPrefix(line, "Execution location:") {
+						return nil
+					}
 					calls++
 					if calls == 1 {
 						return failure
