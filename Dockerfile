@@ -31,6 +31,7 @@ RUN apk add --no-cache bash ca-certificates docker-cli podman-remote && \
 
 ENV DURPDEPLOY_AGENT_STATE_DIR=/var/lib/durpdeploy-agent
 ENV DURPDEPLOY_AGENT_EXECUTION_BOUNDARY=service
+ENV container=durpdeploy
 ENV TMPDIR=/tmp
 WORKDIR /var/lib/durpdeploy-agent
 VOLUME ["/var/lib/durpdeploy-agent", "/tmp"]
