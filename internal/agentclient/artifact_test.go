@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/DeveloperDurp/durpdeploy-agent/artifact"
@@ -28,7 +29,7 @@ type artifactDownloadResult struct {
 }
 
 func TestArtifactDownloadUsesAuthenticatedPin(t *testing.T) {
-	for _, scenario := range []string{"valid", "wrong-bytes", "wrong-header", "wrong-size", "redirect"} {
+	for _, scenario := range []string{"valid", "uppercase-pin", "uppercase-header", "wrong-bytes", "wrong-header", "wrong-size", "redirect"} {
 		t.Run(scenario, func(t *testing.T) { checkArtifactResponse(t, scenario) })
 	}
 }
@@ -40,6 +41,9 @@ func checkArtifactResponse(t *testing.T, scenario string) {
 		scenario: scenario, data: data,
 		pin: artifact.Pin{SHA256: fmt.Sprintf("%x", sha256.Sum256(data)), Size: int64(len(data))},
 	}
+	if scenario == "uppercase-pin" {
+		response.pin.SHA256 = strings.ToUpper(response.pin.SHA256)
+	}
 	identity := testIdentity(t)
 	server := newTLSServer(t, identity, artifactResponseHandler(t, response))
 	client := testClient(t, server.URL, identity.Fingerprint.String())
@@ -47,7 +51,7 @@ func checkArtifactResponse(t *testing.T, scenario string) {
 		DeploymentID: 42, ClaimToken: "claim",
 	}, response.pin)
 	result := artifactDownloadResult{file, err}
-	if scenario == "valid" {
+	if scenario == "valid" || strings.HasPrefix(scenario, "uppercase-") {
 		assertArtifactDownload(t, result, data)
 		return
 	}
@@ -74,6 +78,8 @@ func artifactResponseHandler(t *testing.T, fixture artifactResponseFixture) http
 		w.Header().Set("X-Artifact-Size", strconv.FormatInt(fixture.pin.Size, 10))
 		data := fixture.data
 		switch fixture.scenario {
+		case "uppercase-header":
+			w.Header().Set("X-Artifact-SHA256", strings.ToUpper(fixture.pin.SHA256))
 		case "wrong-bytes":
 			data = []byte("changed bytes!")
 		case "wrong-header":

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/DeveloperDurp/durpdeploy-agent/artifact"
@@ -80,6 +81,15 @@ func (client *Client) Artifact(
 		file, receiveErr := client.receiveArtifact(response, pin)
 		closeErr := response.Body.Close()
 		if receiveErr != nil {
+			var readError *artifactReadError
+			var localError *os.PathError
+			if closeErr == nil && errors.As(receiveErr, &readError) &&
+				!errors.As(receiveErr, &localError) {
+				if err := client.wait(ctx, attempt, 0); err != nil {
+					return nil, err
+				}
+				continue
+			}
 			return nil, errors.Join(receiveErr, closeErr)
 		}
 		if closeErr != nil {
@@ -89,13 +99,17 @@ func (client *Client) Artifact(
 	}
 }
 
+type artifactReadError struct{ error }
+
+func (err *artifactReadError) Unwrap() error { return err.error }
+
 func (client *Client) receiveArtifact(
 	response *http.Response,
 	pin artifact.Pin,
 ) (file *os.File, result error) {
 	size, err := strconv.ParseInt(response.Header.Get("X-Artifact-Size"), 10, 64)
 	if err != nil || size != pin.Size || response.ContentLength != pin.Size ||
-		response.Header.Get("X-Artifact-SHA256") != pin.SHA256 {
+		!strings.EqualFold(response.Header.Get("X-Artifact-SHA256"), pin.SHA256) {
 		return nil, artifact.ErrChecksum
 	}
 	file, err = os.CreateTemp(filepath.Join(client.stateDir, "staging"), "package-*.zip")
@@ -113,9 +127,13 @@ func (client *Client) receiveArtifact(
 		io.MultiWriter(file, hash), io.LimitReader(response.Body, pin.Size+1),
 	)
 	if err != nil {
-		return file, err
+		var writeError *os.PathError
+		if errors.As(err, &writeError) {
+			return file, err
+		}
+		return file, &artifactReadError{err}
 	}
-	if count != pin.Size || hex.EncodeToString(hash.Sum(nil)) != pin.SHA256 {
+	if count != pin.Size || !strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), pin.SHA256) {
 		return file, artifact.ErrChecksum
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
