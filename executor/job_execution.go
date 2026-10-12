@@ -39,27 +39,8 @@ func (e *Executor) Execute(
 		return err
 	}
 	job.environment = environment
-	if job.stageDirectory != "" {
-		job.stageDirectory, err = filepath.Abs(job.stageDirectory)
-		if err != nil {
-			return fmt.Errorf("resolve host staging directory: %w",
-				errors.Join(ErrInvalidStepExecution, err))
-		}
-		job.environment["DURPDEPLOY_STAGE_DIR"] = job.stageDirectory
-	}
-	if job.stageVolume != "" {
-		job.environment["DURPDEPLOY_STAGE_DIR"] = "/stage"
-	}
-	if job.artifactDirectory != "" {
-		job.artifactDirectory, err = filepath.Abs(job.artifactDirectory)
-		if err != nil {
-			return fmt.Errorf("resolve host package directory: %w",
-				errors.Join(ErrInvalidStepExecution, err))
-		}
-		job.environment[artifact.PathVariable] = job.artifactDirectory
-	}
-	if job.artifactVolume != "" {
-		job.environment[artifact.PathVariable] = "/artifacts"
+	if err := job.setManagedPaths(); err != nil {
+		return err
 	}
 	if _, err := agentproto.ParseInterpreter(
 		string(normalizeInterpreter(job.interpreter)),
@@ -159,4 +140,31 @@ func writeRetry(writer *redactingWriter, job Job, attempt int) error {
 		return err
 	}
 	return writer.flush()
+}
+
+func (job *Job) setManagedPaths() error {
+	var err error
+	if job.stageDirectory != "" {
+		job.stageDirectory, err = filepath.Abs(job.stageDirectory)
+		if err != nil {
+			return fmt.Errorf("resolve host staging directory: %w",
+				errors.Join(ErrInvalidStepExecution, err))
+		}
+		job.environment["DURPDEPLOY_STAGE_DIR"] = job.stageDirectory
+	}
+	if job.stageVolume != "" {
+		job.environment["DURPDEPLOY_STAGE_DIR"] = "/stage"
+	}
+	if job.artifactDirectory != "" {
+		job.artifactDirectory, err = filepath.Abs(job.artifactDirectory)
+		if err != nil {
+			return fmt.Errorf("resolve host package directory: %w",
+				errors.Join(ErrInvalidStepExecution, err))
+		}
+		job.environment[artifact.PathVariable] = job.artifactDirectory
+	}
+	if job.artifactVolume != "" {
+		job.environment[artifact.PathVariable] = "/artifacts"
+	}
+	return nil
 }

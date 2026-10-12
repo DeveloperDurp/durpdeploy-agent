@@ -12,18 +12,9 @@ const maxZIPPathBytes = 4000
 const maxZIPComponentBytes = 255
 
 func validateZIPEntry(entry *zip.File, kinds map[string]bool) error {
-	name := strings.TrimSuffix(entry.Name, "/")
-	if len(name) > maxZIPPathBytes {
-		return ErrInvalid
-	}
-	for _, component := range strings.Split(name, "/") {
-		if len(component) > maxZIPComponentBytes {
-			return ErrInvalid
-		}
-	}
-	if name == "." || !fs.ValidPath(name) || path.Clean(name) != name ||
-		strings.ContainsAny(name, "\\:\x00") {
-		return ErrInvalid
+	name, err := zipEntryName(entry.Name)
+	if err != nil {
+		return err
 	}
 	mode := entry.Mode()
 	if !mode.IsRegular() && !mode.IsDir() {
@@ -47,4 +38,21 @@ func validateZIPEntry(entry *zip.File, kinds map[string]bool) error {
 		}
 	}
 	return nil
+}
+
+func zipEntryName(raw string) (string, error) {
+	name := strings.TrimSuffix(raw, "/")
+	if len(name) > maxZIPPathBytes {
+		return "", ErrInvalid
+	}
+	for _, component := range strings.Split(name, "/") {
+		if len(component) > maxZIPComponentBytes {
+			return "", ErrInvalid
+		}
+	}
+	if name == "." || !fs.ValidPath(name) || path.Clean(name) != name ||
+		strings.ContainsAny(name, "\\:\x00") {
+		return "", ErrInvalid
+	}
+	return name, nil
 }

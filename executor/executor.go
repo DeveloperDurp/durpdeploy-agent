@@ -139,10 +139,7 @@ func (e *Executor) runAttempt(
 	cmd.Stdout = io.MultiWriter(&output, writer)
 	cmd.Stderr = io.MultiWriter(&output, writer)
 	if err := cmd.Start(); err != nil {
-		if err := writer.flush(); err != nil {
-			return err
-		}
-		return err
+		return errors.Join(err, writer.flush())
 	}
 	pgid := cmd.Process.Pid
 	if callbacks.trackProcessGroup != nil {
