@@ -457,6 +457,16 @@ The agent resumes its pinned outbound connection without manual server settings.
 
 ## Verify before deploying
 
+Package jobs require a server and agent build that supports `artifact/1` and `staging/1`.
+Preserve the paired state directory when upgrading the agent.
+Read the attached release package through `ARTIFACT_PATH`.
+Copy files into `DURPDEPLOY_STAGE_DIR` before modifying them for later jobs.
+Each job downloads and verifies the same pinned package.
+Host jobs use read-only file permissions within the trusted operator boundary.
+Container jobs use a separate read-only, noexec package mount.
+Managed package files follow the staging cleanup and recovery rules.
+This feature adds no per-job cgroup or delegation requirement.
+
 ```bash
 sudo systemctl is-active durpdeploy-agent
 sudo journalctl -u durpdeploy-agent -n 50 --no-pager

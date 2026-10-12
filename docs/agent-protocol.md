@@ -7,6 +7,32 @@ listener, database state, runner authorization, or fallback path.
 
 ## Endpoints and payloads
 
+Package support uses the optional `X-DurpDeploy-Artifact: artifact/1` poll capability.
+Package jobs also require `X-DurpDeploy-Staging: staging/1`.
+The encrypted release object includes `artifact: {"sha256":"...","size":123}`.
+These jobs contain one step and set `staging: true`.
+Download the package from `POST /agent/v1/deployments/{id}/artifact`.
+Send JSON `{"claim_token":"..."}` without a `protocol` field.
+The response includes `X-Artifact-SHA256`, `X-Artifact-Size`, and `Content-Length`.
+The agent checks these headers and the received bytes against the authenticated payload pin.
+The server keeps upstream URLs and credentials private.
+Changed pins or invalid packages return `422`.
+
+Package downloads permit 300 MiB.
+Extraction permits 512 MiB, 10,000 ZIP entries, and 19,999 filesystem nodes.
+The shared parser limits ZIP metadata reads to 16 MiB.
+It rejects unsafe paths, links, special files, and duplicate entries.
+Transfers keep heartbeats active and stop after five minutes without progress.
+Authenticated package HTTP transfers pause the server's remote step timeout.
+
+Package jobs receive `ARTIFACT_PATH`, including jobs with variable selections.
+Host jobs use a private package directory with read-only file permissions.
+Container jobs mount the package read-only at `/artifacts` with noexec enabled.
+Copy package files into `DURPDEPLOY_STAGE_DIR` to publish changed outputs.
+The original package directory stays outside writable staging.
+The agent purges managed package files and volumes before reporting completion.
+Unconfirmed cleanup blocks polling through the existing recovery contract.
+
 Deployment staging uses the optional `X-DurpDeploy-Staging: staging/1` poll capability.
 The encrypted release object contains `staging: true` when the job requires staging transfer.
 These jobs contain exactly one step.
