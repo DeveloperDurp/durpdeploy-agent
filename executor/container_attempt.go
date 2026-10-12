@@ -131,6 +131,13 @@ func (r *ContainerExecutor) runAttempt(
 	cmd.Stdin = strings.NewReader(job.scriptBody)
 	cmd.Stdout, cmd.Stderr = writer, writer
 	setPgid(cmd)
+	if err := writer.write(fmt.Sprintf(
+		"Execution location: target=agent host=%q mode=container runtime=%q container=%q image=%q interpreter=%q attempt=%d\n",
+		writer.scrubber.Scrub(executionHostname(r.hostname)), r.runtime,
+		name, *imageID, job.interpreter, attempt,
+	)); err != nil {
+		return err
+	}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start container client: %w", err)
 	}

@@ -138,6 +138,18 @@ func (e *Executor) runAttempt(
 	var output bytes.Buffer
 	cmd.Stdout = io.MultiWriter(&output, writer)
 	cmd.Stderr = io.MultiWriter(&output, writer)
+	host := ""
+	if e.container != nil {
+		e.container.mu.Lock()
+		host = e.container.hostname
+		e.container.mu.Unlock()
+	}
+	if err := writer.write(fmt.Sprintf(
+		"Execution location: target=agent host=%q mode=host/shell interpreter=%q attempt=%d\n",
+		writer.scrubber.Scrub(executionHostname(host)), job.interpreter, attempt,
+	)); err != nil {
+		return err
+	}
 	if err := cmd.Start(); err != nil {
 		return errors.Join(err, writer.flush())
 	}

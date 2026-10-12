@@ -20,7 +20,10 @@ func TestExecutor_log_failure_does_not_repeat_host_side_effects(t *testing.T) {
 	)
 	calls := 0
 	failure := errors.New("log upload timed out")
-	callbacks := NewCallbacks(CallbacksConfig{WriteLog: func(string) error {
+	callbacks := NewCallbacks(CallbacksConfig{WriteLog: func(line string) error {
+		if strings.HasPrefix(line, "Execution location:") {
+			return nil
+		}
 		calls++
 		if calls == 1 {
 			return failure

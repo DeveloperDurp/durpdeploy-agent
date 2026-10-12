@@ -45,8 +45,8 @@ func TestExecutor_Succeeds_when_script_exits_zero(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if got := strings.Join(logs, "\n"); got != "complete" {
-		t.Fatalf("logs = %q, want %q", got, "complete")
+	if len(logs) == 0 || logs[len(logs)-1] != "complete" {
+		t.Fatalf("script output missing from logs: %v", logs)
 	}
 }
 

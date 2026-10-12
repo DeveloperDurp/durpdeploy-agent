@@ -4,6 +4,29 @@ This runbook configures a DurpDeploy server and one outbound-only remote agent.
 It covers the server listener, admin pairing, agent installation, routing,
 maintenance, and recovery.
 
+## Execution location in step logs
+
+Each attempt logs its physical hostname, execution mode, interpreter, and attempt number before script output.
+Container attempts also log the runtime, container name, and resolved image ID.
+The server records the selected agent name and ID.
+These entries use the existing redacted log upload path.
+
+Container execution uses the physical hostname reported by Docker or Podman.
+Host execution uses this runtime information when available.
+Native host agents otherwise use the operating system hostname.
+Unavailable physical hostnames appear as `unknown`.
+
+For a containerized host agent without runtime information, set `DURPDEPLOY_AGENT_HOSTNAME` to the physical machine hostname.
+This setting overrides automatic hostname detection.
+The setting does not grant runtime socket access.
+
+```sh
+DURPDEPLOY_AGENT_HOSTNAME=app-server-02
+```
+
+Read execution locations in deployment logs on the server.
+Retries and fan-out retain separate entries.
+
 ## Container step execution (agent/3)
 
 Upgrade the DurpDeploy server for the v3 contract before enabling this mode.
