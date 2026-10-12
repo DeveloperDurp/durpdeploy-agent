@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/DeveloperDurp/durpdeploy-agent/artifact"
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
@@ -165,6 +166,32 @@ func (job *Job) setManagedPaths() error {
 	}
 	if job.artifactVolume != "" {
 		job.environment[artifact.PathVariable] = "/artifacts"
+	}
+	return job.validateArtifactStorage()
+}
+
+func (job Job) validateArtifactStorage() error {
+	if job.artifactVolume != "" && job.artifactVolume == job.stageVolume {
+		return ErrInvalidStepExecution
+	}
+	if job.artifactDirectory == "" || job.stageDirectory == "" {
+		return nil
+	}
+	packagePath, err := filepath.EvalSymlinks(job.artifactDirectory)
+	if err != nil {
+		return fmt.Errorf("resolve package storage: %w",
+			errors.Join(ErrInvalidStepExecution, err))
+	}
+	stagePath, err := filepath.EvalSymlinks(job.stageDirectory)
+	if err != nil {
+		return fmt.Errorf("resolve staging storage: %w",
+			errors.Join(ErrInvalidStepExecution, err))
+	}
+	separator := string(filepath.Separator)
+	packagePath = strings.TrimSuffix(packagePath, separator) + separator
+	stagePath = strings.TrimSuffix(stagePath, separator) + separator
+	if strings.HasPrefix(packagePath, stagePath) || strings.HasPrefix(stagePath, packagePath) {
+		return ErrInvalidStepExecution
 	}
 	return nil
 }
