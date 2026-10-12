@@ -89,7 +89,7 @@ Variable selections cannot remove this variable.
 The server combines independent parallel changes and deletions, but conflicting changes fail the deployment.
 The server purges encrypted transfer snapshots when the deployment ends.
 
-All JSON requests are exactly one object and require a present, non-null
+All JSON lifecycle requests are exactly one object and require a present, non-null
 protocol. They reject unknown fields, trailing JSON values, malformed JSON,
 and unsupported protocol values. Pairing remains `agent/1`. Paired lifecycle
 requests may use `agent/1`, `agent/2`, or `agent/3` during rollout.
