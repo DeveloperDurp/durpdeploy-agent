@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/DeveloperDurp/durpdeploy-agent/artifact"
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
 
@@ -24,7 +25,9 @@ func (e *Executor) Execute(
 		return err
 	}
 	if (job.executionMode == agentproto.ExecutionContainer && job.stageDirectory != "") ||
-		(job.executionMode != agentproto.ExecutionContainer && job.stageVolume != "") {
+		(job.executionMode != agentproto.ExecutionContainer && job.stageVolume != "") ||
+		(job.executionMode == agentproto.ExecutionContainer && job.artifactDirectory != "") ||
+		(job.executionMode != agentproto.ExecutionContainer && job.artifactVolume != "") {
 		return ErrInvalidStepExecution
 	}
 	environment, err := selectStepEnvironment(
@@ -46,6 +49,17 @@ func (e *Executor) Execute(
 	}
 	if job.stageVolume != "" {
 		job.environment["DURPDEPLOY_STAGE_DIR"] = "/stage"
+	}
+	if job.artifactDirectory != "" {
+		job.artifactDirectory, err = filepath.Abs(job.artifactDirectory)
+		if err != nil {
+			return fmt.Errorf("resolve host package directory: %w",
+				errors.Join(ErrInvalidStepExecution, err))
+		}
+		job.environment[artifact.PathVariable] = job.artifactDirectory
+	}
+	if job.artifactVolume != "" {
+		job.environment[artifact.PathVariable] = "/artifacts"
 	}
 	if _, err := agentproto.ParseInterpreter(
 		string(normalizeInterpreter(job.interpreter)),

@@ -45,7 +45,7 @@ func persistHostStagingCleanup(
 func (s *jobStaging) recordRoots(includeWorkspace bool) error {
 	s.recoveryRoots = nil
 	base := ""
-	for _, root := range []*os.File{s.root, s.workspace} {
+	for _, root := range []*os.File{s.root, s.workspace, s.artifactWorkspace} {
 		if root == nil {
 			continue
 		}
@@ -54,6 +54,11 @@ func (s *jobStaging) recordRoots(includeWorkspace bool) error {
 			// An unavailable identity must block replay rather than skip cleanup.
 			s.recoveryRoots = []*stagingRootRecord{{}}
 			return err
+		}
+		if includeWorkspace && root == s.artifactWorkspace {
+			if err := root.Chmod(0555); err != nil {
+				return err
+			}
 		}
 		if root == s.root {
 			base = root.Name()
@@ -68,7 +73,7 @@ func (s *jobStaging) recordRoots(includeWorkspace bool) error {
 			}
 		}
 		if record != nil {
-			if includeWorkspace && root == s.workspace {
+			if includeWorkspace && root != s.root {
 				s.recoveryRoots = append(
 					[]*stagingRootRecord{record},
 					s.recoveryRoots...)

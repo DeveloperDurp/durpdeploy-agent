@@ -8,6 +8,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/DeveloperDurp/durpdeploy-agent/artifact"
 	runner "github.com/DeveloperDurp/durpdeploy-agent/executor"
 )
 
@@ -19,6 +20,7 @@ type deploymentPayload struct {
 }
 
 type releasePayload struct {
+	Artifact  *artifact.Pin `json:"artifact,omitempty"`
 	Staging   bool          `json:"staging,omitempty"`
 	ID        int64         `json:"id"`
 	ProjectID int64         `json:"project_id"`
@@ -56,6 +58,14 @@ func decodePayload(raw []byte, deploymentID int64) (deploymentPayload, error) {
 		return deploymentPayload{}, errors.New(
 			"staging requires one claimed step",
 		)
+	}
+	if payload.Release.Artifact != nil {
+		if !payload.Release.Staging {
+			return deploymentPayload{}, artifact.ErrInvalid
+		}
+		if err := payload.Release.Artifact.Validate(); err != nil {
+			return deploymentPayload{}, err
+		}
 	}
 	for index, step := range payload.Release.Steps {
 		if err := step.ValidateExecution(); err != nil {
@@ -107,6 +117,9 @@ func (payload deploymentPayload) environment() (map[string]string, []string, err
 	environment := make(map[string]string, len(payload.Variables))
 	secrets := make([]string, 0, len(payload.Variables))
 	for _, variable := range payload.Variables {
+		if payload.Release.Artifact != nil && variable.Name == artifact.PathVariable {
+			return nil, nil, artifact.ErrInvalid
+		}
 		if payload.Release.Staging && variable.Name == "DURPDEPLOY_STAGE_DIR" {
 			return nil, nil, errors.New("reserved deployment variable")
 		}

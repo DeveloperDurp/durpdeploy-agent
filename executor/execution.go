@@ -101,14 +101,16 @@ func (s Step) ValidateExecution() error {
 // ExecutionConfig supplies a deployment's immutable step snapshot and its
 // environment to the sandboxed executor.
 type ExecutionConfig struct {
-	StageDirectory   string
-	StageVolume      string
-	DeploymentID     int64
-	Steps            []Step
-	Environment      map[string]string
-	Secrets          []string
-	CallbacksForStep func(Step) Callbacks
-	StepFinished     func(Step, error)
+	ArtifactDirectory string
+	ArtifactVolume    string
+	StageDirectory    string
+	StageVolume       string
+	DeploymentID      int64
+	Steps             []Step
+	Environment       map[string]string
+	Secrets           []string
+	CallbacksForStep  func(Step) Callbacks
+	StepFinished      func(Step, error)
 }
 
 // ExecuteSteps runs steps in order, stopping at the first failed or cancelled
@@ -124,19 +126,21 @@ func (e *Executor) ExecuteSteps(
 			callbacks = config.CallbacksForStep(step)
 		}
 		err := e.Execute(ctx, NewJob(JobConfig{
-			StageDirectory: config.StageDirectory,
-			StageVolume:    config.StageVolume,
-			DeploymentID:   config.DeploymentID,
-			Name:           step.Name,
-			ScriptBody:     step.ScriptBody,
-			Interpreter:    step.Interpreter,
-			ExecutionMode:  step.ExecutionMode,
-			ContainerImage: step.ContainerImage,
-			VariableNames:  step.VariableNames,
-			Timeout:        time.Duration(step.TimeoutSeconds) * time.Second,
-			MaxRetries:     int(step.MaxRetries),
-			Environment:    config.Environment,
-			Secrets:        config.Secrets,
+			ArtifactDirectory: config.ArtifactDirectory,
+			ArtifactVolume:    config.ArtifactVolume,
+			StageDirectory:    config.StageDirectory,
+			StageVolume:       config.StageVolume,
+			DeploymentID:      config.DeploymentID,
+			Name:              step.Name,
+			ScriptBody:        step.ScriptBody,
+			Interpreter:       step.Interpreter,
+			ExecutionMode:     step.ExecutionMode,
+			ContainerImage:    step.ContainerImage,
+			VariableNames:     step.VariableNames,
+			Timeout:           time.Duration(step.TimeoutSeconds) * time.Second,
+			MaxRetries:        int(step.MaxRetries),
+			Environment:       config.Environment,
+			Secrets:           config.Secrets,
 		}), callbacks)
 		if config.StepFinished != nil {
 			config.StepFinished(step, err)

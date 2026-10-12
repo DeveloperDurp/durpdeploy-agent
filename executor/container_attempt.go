@@ -27,7 +27,8 @@ func (r *ContainerExecutor) runAttempt(
 	if r.cleanupErr != nil {
 		return r.cleanupErr
 	}
-	if job.stageVolume != "" && !r.stages[job.stageVolume] {
+	if (job.stageVolume != "" && !r.stages[job.stageVolume]) ||
+		(job.artifactVolume != "" && !r.stages[job.artifactVolume]) {
 		return ErrInvalidStepExecution
 	}
 	timeout := job.timeout
@@ -85,6 +86,13 @@ func (r *ContainerExecutor) runAttempt(
 	}
 	if job.stageVolume != "" {
 		mount := job.stageVolume + ":/stage:rw,nocopy"
+		if r.runtime == agentproto.RuntimePodman {
+			mount += ",noexec,nosuid,nodev,z"
+		}
+		args = append(args, "--volume="+mount)
+	}
+	if job.artifactVolume != "" {
+		mount := job.artifactVolume + ":/artifacts:ro,nocopy"
 		if r.runtime == agentproto.RuntimePodman {
 			mount += ",noexec,nosuid,nodev,z"
 		}
