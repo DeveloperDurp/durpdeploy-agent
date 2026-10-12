@@ -159,6 +159,15 @@ func executeClaim(
 				client.ContainerExecutor(),
 				&config,
 			)
+			if err == nil && payload.Release.Artifact != nil {
+				err = stage.configureArtifact(executionCtx, client,
+					claimedPackage{claim, *payload.Release.Artifact})
+				if stage.artifactContainer != nil {
+					config.ArtifactVolume = stage.artifactContainer.Volume
+				} else {
+					config.ArtifactDirectory = stage.artifactDirectory
+				}
+			}
 			if err == nil && stage.container == nil {
 				err = executor.EnableHostSupervisor()
 				if err == nil {
@@ -185,8 +194,7 @@ func executeClaim(
 		err = errors.Join(
 			err,
 			stage.recordRoots(false),
-			stage.input.Close(),
-			stage.workspace.Close(), stage.root.Close(),
+			stage.closeHandles(),
 		)
 	} else if stage != nil {
 		err = errors.Join(

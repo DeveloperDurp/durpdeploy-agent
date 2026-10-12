@@ -16,19 +16,24 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DeveloperDurp/durpdeploy-agent/artifact"
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
 
-func TestStagingDoesNotRetryLocalWriteFailure(t *testing.T) {
+func TestTransfersDoNotRetryLocalWriteFailure(t *testing.T) {
 	const probe = "DURPDEPLOY_TEST_STAGING_WRITE_FAILURE"
-	if os.Getenv(probe) != "1" {
-		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-		defer cancel()
-		command := exec.CommandContext(ctx, os.Args[0],
-			"-test.run=^TestStagingDoesNotRetryLocalWriteFailure$")
-		command.Env = append(os.Environ(), probe+"=1")
-		if output, err := command.CombinedOutput(); err != nil {
-			t.Fatalf("local write failure probe: %v\n%s", err, output)
+	if os.Getenv(probe) == "" {
+		for _, mode := range []string{"staging", "artifact"} {
+			t.Run(mode, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+				defer cancel()
+				command := exec.CommandContext(ctx, os.Args[0],
+					"-test.run=^TestTransfersDoNotRetryLocalWriteFailure$")
+				command.Env = append(os.Environ(), probe+"="+mode)
+				if output, err := command.CombinedOutput(); err != nil {
+					t.Fatalf("local write failure probe: %v\n%s", err, output)
+				}
+			})
 		}
 		return
 	}
@@ -39,6 +44,7 @@ func TestStagingDoesNotRetryLocalWriteFailure(t *testing.T) {
 		identity,
 		func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
+			w.Header().Set("X-Artifact-Size", strconv.Itoa(len(archive)))
 			w.Header().
 				Set("X-Artifact-SHA256", fmt.Sprintf("%x", sha256.Sum256(archive)))
 			if _, err := w.Write(archive); err != nil {
@@ -70,11 +76,17 @@ func TestStagingDoesNotRetryLocalWriteFailure(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	file, err := client.Staging(
-		t.Context(),
-		agentproto.PollResponse{DeploymentID: 42},
-		nil,
-	)
+	var file *os.File
+	var err error
+	claim := agentproto.PollResponse{DeploymentID: 42}
+	if os.Getenv(probe) == "artifact" {
+		file, err = client.Artifact(t.Context(), claim, artifact.Pin{
+			SHA256: fmt.Sprintf("%x", sha256.Sum256(archive)),
+			Size:   int64(len(archive)),
+		})
+	} else {
+		file, err = client.Staging(t.Context(), claim, nil)
+	}
 	var writeError *os.PathError
 	if file != nil || !errors.As(err, &writeError) ||
 		writeError.Op != "write" ||

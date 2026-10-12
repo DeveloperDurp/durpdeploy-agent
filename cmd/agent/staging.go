@@ -14,14 +14,17 @@ import (
 )
 
 type jobStaging struct {
-	directory     string
-	parent        string
-	original      os.FileInfo
-	root          *os.File
-	workspace     *os.File
-	recoveryRoots []*stagingRootRecord
-	container     *runner.ContainerStage
-	input         *os.File
+	artifactDirectory string
+	artifactWorkspace *os.File
+	artifactContainer *runner.ContainerStage
+	directory         string
+	parent            string
+	original          os.FileInfo
+	root              *os.File
+	workspace         *os.File
+	recoveryRoots     []*stagingRootRecord
+	container         *runner.ContainerStage
+	input             *os.File
 }
 
 func newJobStaging(
@@ -123,16 +126,12 @@ func (s *jobStaging) close(
 	client *agentclient.Client,
 	claim agentproto.PollResponse,
 ) (result error) {
-	defer func() {
-		result = errors.Join(result, s.input.Close())
-		for _, root := range []*os.File{s.workspace, s.root} {
-			if root != nil {
-				result = errors.Join(result, root.Close())
-			}
-		}
-	}()
+	defer func() { result = errors.Join(result, s.closeHandles()) }()
 	if s.container != nil {
 		result = s.container.Close(ctx)
+	}
+	if s.artifactContainer != nil {
+		result = errors.Join(result, s.artifactContainer.Close(ctx))
 	}
 	if err := s.recordRoots(false); err != nil {
 		return errors.Join(result, runner.ErrContainerCleanup, err)
@@ -146,7 +145,7 @@ func (s *jobStaging) close(
 		}
 	}
 	// Both handles retain owned files when a script moves either directory.
-	for _, root := range []*os.File{s.workspace, s.root} {
+	for _, root := range []*os.File{s.workspace, s.artifactWorkspace, s.root} {
 		if root == nil {
 			continue
 		}
@@ -157,6 +156,16 @@ func (s *jobStaging) close(
 	// Claims execute serially, so purge replacement trees before polling.
 	if err := client.ResetStaging(); err != nil {
 		result = errors.Join(result, runner.ErrContainerCleanup, err)
+	}
+	return result
+}
+
+func (s *jobStaging) closeHandles() error {
+	result := s.input.Close()
+	for _, root := range []*os.File{s.workspace, s.artifactWorkspace, s.root} {
+		if root != nil {
+			result = errors.Join(result, root.Close())
+		}
 	}
 	return result
 }

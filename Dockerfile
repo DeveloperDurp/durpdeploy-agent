@@ -8,6 +8,7 @@ COPY go.mod ./
 RUN go mod download
 
 COPY cmd/agent ./cmd/agent
+COPY artifact ./artifact
 COPY bootstrap ./bootstrap
 COPY executor ./executor
 COPY internal ./internal

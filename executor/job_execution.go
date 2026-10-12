@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
+	"github.com/DeveloperDurp/durpdeploy-agent/artifact"
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
 
@@ -24,7 +26,9 @@ func (e *Executor) Execute(
 		return err
 	}
 	if (job.executionMode == agentproto.ExecutionContainer && job.stageDirectory != "") ||
-		(job.executionMode != agentproto.ExecutionContainer && job.stageVolume != "") {
+		(job.executionMode != agentproto.ExecutionContainer && job.stageVolume != "") ||
+		(job.executionMode == agentproto.ExecutionContainer && job.artifactDirectory != "") ||
+		(job.executionMode != agentproto.ExecutionContainer && job.artifactVolume != "") {
 		return ErrInvalidStepExecution
 	}
 	environment, err := selectStepEnvironment(
@@ -36,16 +40,8 @@ func (e *Executor) Execute(
 		return err
 	}
 	job.environment = environment
-	if job.stageDirectory != "" {
-		job.stageDirectory, err = filepath.Abs(job.stageDirectory)
-		if err != nil {
-			return fmt.Errorf("resolve host staging directory: %w",
-				errors.Join(ErrInvalidStepExecution, err))
-		}
-		job.environment["DURPDEPLOY_STAGE_DIR"] = job.stageDirectory
-	}
-	if job.stageVolume != "" {
-		job.environment["DURPDEPLOY_STAGE_DIR"] = "/stage"
+	if err := job.setManagedPaths(); err != nil {
+		return err
 	}
 	if _, err := agentproto.ParseInterpreter(
 		string(normalizeInterpreter(job.interpreter)),
@@ -145,4 +141,57 @@ func writeRetry(writer *redactingWriter, job Job, attempt int) error {
 		return err
 	}
 	return writer.flush()
+}
+
+func (job *Job) setManagedPaths() error {
+	var err error
+	if job.stageDirectory != "" {
+		job.stageDirectory, err = filepath.Abs(job.stageDirectory)
+		if err != nil {
+			return fmt.Errorf("resolve host staging directory: %w",
+				errors.Join(ErrInvalidStepExecution, err))
+		}
+		job.environment["DURPDEPLOY_STAGE_DIR"] = job.stageDirectory
+	}
+	if job.stageVolume != "" {
+		job.environment["DURPDEPLOY_STAGE_DIR"] = "/stage"
+	}
+	if job.artifactDirectory != "" {
+		job.artifactDirectory, err = filepath.Abs(job.artifactDirectory)
+		if err != nil {
+			return fmt.Errorf("resolve host package directory: %w",
+				errors.Join(ErrInvalidStepExecution, err))
+		}
+		job.environment[artifact.PathVariable] = job.artifactDirectory
+	}
+	if job.artifactVolume != "" {
+		job.environment[artifact.PathVariable] = "/artifacts"
+	}
+	return job.validateArtifactStorage()
+}
+
+func (job Job) validateArtifactStorage() error {
+	if job.artifactVolume != "" && job.artifactVolume == job.stageVolume {
+		return ErrInvalidStepExecution
+	}
+	if job.artifactDirectory == "" || job.stageDirectory == "" {
+		return nil
+	}
+	packagePath, err := filepath.EvalSymlinks(job.artifactDirectory)
+	if err != nil {
+		return fmt.Errorf("resolve package storage: %w",
+			errors.Join(ErrInvalidStepExecution, err))
+	}
+	stagePath, err := filepath.EvalSymlinks(job.stageDirectory)
+	if err != nil {
+		return fmt.Errorf("resolve staging storage: %w",
+			errors.Join(ErrInvalidStepExecution, err))
+	}
+	separator := string(filepath.Separator)
+	packagePath = strings.TrimSuffix(packagePath, separator) + separator
+	stagePath = strings.TrimSuffix(stagePath, separator) + separator
+	if strings.HasPrefix(packagePath, stagePath) || strings.HasPrefix(stagePath, packagePath) {
+		return ErrInvalidStepExecution
+	}
+	return nil
 }
