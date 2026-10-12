@@ -63,8 +63,8 @@ func makeArtifactReadOnly(directory string) error {
 			return err
 		}
 		if entry.IsDir() {
-			return os.Chmod(path, 0555)
+			return os.Chmod(path, 0500)
 		}
-		return os.Chmod(path, 0444)
+		return os.Chmod(path, 0400)
 	})
 }

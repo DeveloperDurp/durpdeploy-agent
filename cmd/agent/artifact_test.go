@@ -24,7 +24,7 @@ func TestClaimPackageBecomesWritableStagingOutput(t *testing.T) {
 	for _, scenario := range []string{"success", "moved-package", "invalid-zip", "changed-pin"} {
 		t.Run(scenario, func(t *testing.T) {
 			fixture := newAgentSubprocessFixture(t,
-				`test "$(cat "$ARTIFACT_PATH/input")" = release; test "$(stat -c %a "$ARTIFACT_PATH/input")" = 444; test "$(stat -c %a "$ARTIFACT_PATH")" = 555; cp "$ARTIFACT_PATH/input" "$DURPDEPLOY_STAGE_DIR/output"`)
+				`test "$(cat "$ARTIFACT_PATH/input")" = release; test "$(stat -c %a "$ARTIFACT_PATH/input")" = 400; test "$(stat -c %a "$ARTIFACT_PATH")" = 500; cp "$ARTIFACT_PATH/input" "$DURPDEPLOY_STAGE_DIR/output"`)
 			client, _ := claimLifecycleClient(t, fixture)
 			fixture.payload.Release.Staging = true
 			fixture.payload.Release.Steps[0].ExecutionMode = agentproto.ExecutionHost

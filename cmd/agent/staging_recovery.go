@@ -56,7 +56,7 @@ func (s *jobStaging) recordRoots(includeWorkspace bool) error {
 			return err
 		}
 		if includeWorkspace && root == s.artifactWorkspace {
-			if err := root.Chmod(0555); err != nil {
+			if err := root.Chmod(0500); err != nil {
 				return err
 			}
 		}
