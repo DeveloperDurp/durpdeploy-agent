@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+
+	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
 
 const (
@@ -28,6 +30,11 @@ var (
 type Pin struct {
 	SHA256 string `json:"sha256"`
 	Size   int64  `json:"size"`
+}
+
+// DownloadRequest retains the artifact endpoint's envelope-free wire contract.
+type DownloadRequest struct {
+	ClaimToken agentproto.ClaimToken `json:"claim_token"`
 }
 
 func (p Pin) Validate() error {
