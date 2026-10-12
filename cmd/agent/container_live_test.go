@@ -140,10 +140,15 @@ func TestAgentContainerLive_executes_steps_through_mounted_socket(
 		"--add-host=host.test:host-gateway",
 	}
 	if runtime == "podman" {
+		network := "pasta:--map-host-loopback,169.254.1.2"
+		if _, err := exec.LookPath("slirp4netns"); err == nil {
+			network = "slirp4netns:allow_host_loopback=true"
+		}
 		args = append(
 			args,
 			"--userns=keep-id",
-			"--network=slirp4netns:allow_host_loopback=true",
+			"--security-opt=label=disable",
+			"--network="+network,
 		)
 	}
 	info, err := os.Stat(socket.Path)

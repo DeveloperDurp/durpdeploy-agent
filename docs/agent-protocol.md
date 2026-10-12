@@ -11,6 +11,7 @@ Package support uses the optional `X-DurpDeploy-Artifact: artifact/1` poll capab
 Package jobs also require `X-DurpDeploy-Staging: staging/1`.
 The encrypted release object includes `artifact: {"sha256":"...","size":123}`.
 These jobs contain one step and set `staging: true`.
+
 Download the package from `POST /agent/v1/deployments/{id}/artifact`.
 Send JSON `{"claim_token":"..."}` without a `protocol` field.
 The response includes `X-Artifact-SHA256`, `X-Artifact-Size`, and `Content-Length`.
@@ -30,6 +31,7 @@ Host jobs use a private package directory with read-only file permissions.
 Container jobs mount the package read-only at `/artifacts` with noexec enabled.
 Copy package files into `DURPDEPLOY_STAGE_DIR` to publish changed outputs.
 The original package directory stays outside writable staging.
+
 The agent purges managed package files and volumes before reporting completion.
 Unconfirmed cleanup blocks polling through the existing recovery contract.
 
