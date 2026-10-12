@@ -21,7 +21,7 @@ import (
 )
 
 func TestClaimPackageBecomesWritableStagingOutput(t *testing.T) {
-	for _, scenario := range []string{"success", "invalid-zip", "changed-pin"} {
+	for _, scenario := range []string{"success", "moved-package", "invalid-zip", "changed-pin"} {
 		t.Run(scenario, func(t *testing.T) {
 			fixture := newAgentSubprocessFixture(t,
 				`test "$(cat "$ARTIFACT_PATH/input")" = release; test "$(stat -c %a "$ARTIFACT_PATH/input")" = 444; test "$(stat -c %a "$ARTIFACT_PATH")" = 555; cp "$ARTIFACT_PATH/input" "$DURPDEPLOY_STAGE_DIR/output"`)
@@ -29,6 +29,10 @@ func TestClaimPackageBecomesWritableStagingOutput(t *testing.T) {
 			fixture.payload.Release.Staging = true
 			fixture.payload.Release.Steps[0].ExecutionMode = agentproto.ExecutionHost
 			fixture.payload.Release.Steps[0].ContainerImage = ""
+			moved := filepath.Join(t.TempDir(), "moved-package")
+			if scenario == "moved-package" {
+				fixture.payload.Release.Steps[0].ScriptBody += fmt.Sprintf("; mv \"$ARTIFACT_PATH\" '%s'", moved)
+			}
 			var archive bytes.Buffer
 			writer := zip.NewWriter(&archive)
 			name := "input"
@@ -99,7 +103,7 @@ func TestClaimPackageBecomesWritableStagingOutput(t *testing.T) {
 			}
 			result := <-fixture.result
 			want := agentproto.ResultSucceeded
-			if scenario != "success" {
+			if scenario == "invalid-zip" || scenario == "changed-pin" {
 				want = agentproto.ResultFailed
 			}
 			if result.State != want {
@@ -108,7 +112,7 @@ func TestClaimPackageBecomesWritableStagingOutput(t *testing.T) {
 			mu.Lock()
 			body := append([]byte(nil), output...)
 			mu.Unlock()
-			if scenario == "success" {
+			if want == agentproto.ResultSucceeded {
 				directory := t.TempDir()
 				if err := staging.Unpack(t.Context(), bytes.NewReader(body), directory); err != nil {
 					t.Fatal(err)
@@ -117,12 +121,21 @@ func TestClaimPackageBecomesWritableStagingOutput(t *testing.T) {
 				if err != nil || string(data) != "release" {
 					t.Fatalf("published output=%q error=%v", data, err)
 				}
+				if _, err := os.Stat(filepath.Join(directory, "input")); !os.IsNotExist(err) {
+					t.Fatalf("original package leaked into staging: %v", err)
+				}
 			} else if len(body) != 0 {
 				t.Fatal("failed package was published")
 			}
 			entries, err := os.ReadDir(filepath.Join(fixture.stateDir, "staging"))
 			if err != nil || len(entries) != 0 {
 				t.Fatalf("terminal result retained managed files: %v %v", entries, err)
+			}
+			if scenario == "moved-package" {
+				entries, err := os.ReadDir(moved)
+				if err != nil || len(entries) != 0 {
+					t.Fatalf("moved managed package retained files: %v %v", entries, err)
+				}
 			}
 		})
 	}
