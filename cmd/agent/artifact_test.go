@@ -31,7 +31,7 @@ func TestClaimPackageBecomesWritableStagingOutput(t *testing.T) {
 			fixture.payload.Release.Steps[0].ContainerImage = ""
 			moved := filepath.Join(t.TempDir(), "moved-package")
 			if scenario == "moved-package" {
-				fixture.payload.Release.Steps[0].ScriptBody += fmt.Sprintf("; mv \"$ARTIFACT_PATH\" '%s'", moved)
+				fixture.payload.Release.Steps[0].ScriptBody += fmt.Sprintf("; chmod 700 \"$ARTIFACT_PATH\"; mv \"$ARTIFACT_PATH\" '%s'", moved)
 			}
 			var archive bytes.Buffer
 			writer := zip.NewWriter(&archive)
