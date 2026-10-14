@@ -17,6 +17,9 @@ func (r *ContainerExecutor) requirePIDLimit(ctx context.Context) error {
 	defer cancel()
 	raw, err := r.command(checkCtx, "info", "--format", "{{json .}}").Output()
 	if err != nil {
+		if checkCtx.Err() != nil {
+			return fmt.Errorf("check runtime PID limit support: %w", checkCtx.Err())
+		}
 		return fmt.Errorf("check runtime PID limit support: %w", ErrContainerUnavailable)
 	}
 	var info struct {

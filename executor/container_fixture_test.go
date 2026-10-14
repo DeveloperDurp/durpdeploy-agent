@@ -36,6 +36,9 @@ info)
  if [[ -e "$fixture/unavailable" ]]; then exit 1; fi
  if [[ -e "$fixture/info-wait" ]]; then
    printf 'info\n' >> "$fixture/actions"
+   if [[ -e "$fixture/info-wait-once" ]]; then
+     /usr/bin/rm -f "$fixture/info-wait" "$fixture/info-wait-once"
+   fi
    if [[ -e "$fixture/info-notify" ]]; then
      read -r host port < "$fixture/info-notify"
      exec 3<>/dev/tcp/$host/$port
