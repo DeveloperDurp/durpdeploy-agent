@@ -34,6 +34,15 @@ command=$1; shift
 case "$command" in
 info)
  if [[ -e "$fixture/unavailable" ]]; then exit 1; fi
+ if [[ -e "$fixture/info-wait" ]]; then
+   printf 'info\n' >> "$fixture/actions"
+   if [[ -e "$fixture/info-notify" ]]; then
+     read -r host port < "$fixture/info-notify"
+     exec 3<>/dev/tcp/$host/$port
+     printf 'ready\n' >&3
+   fi
+   exec /usr/bin/sleep 30
+ fi
  if [[ -e "$fixture/runtime-info" ]]; then cat "$fixture/runtime-info"; exit; fi
  printf '%%s' '{"Name":"physical-docker","OSType":"linux","MemoryLimit":true,"CpuCfsQuota":true,"PidsLimit":true,"SecurityOptions":["name=seccomp,profile=builtin"],"host":{"hostname":"physical-podman","os":"linux","cgroupControllers":["cpu","memory","pids"],"security":{"seccompEnabled":true,"seccompProfilePath":"/usr/share/containers/seccomp.json"}}}' ;;
 ps)
@@ -54,6 +63,7 @@ image)
 pull) printf 'pull\n' >> "$fixture/actions"; printf yes > "$fixture/pulled" ;;
 run)
 	if [[ -e "$fixture/retag" ]]; then printf yes > "$fixture/retagged"; fi
+ if [[ -e "$fixture/runtime-info-after-run" ]]; then cat "$fixture/runtime-info-after-run" > "$fixture/runtime-info"; fi
  printf 'run\n' >> "$fixture/actions"
  printf yes > "$fixture/owned"
  printf '%%s\n' "$@" > "$fixture/argv"; printf '%%s\0' "$@" >> "$fixture/argv-history"; printf '\0' >> "$fixture/argv-history"

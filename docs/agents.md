@@ -48,7 +48,9 @@ agent image contains both clients, but mounts no socket by default.
 Runtime preflight checks socket connectivity and cleanup recovery. It does not
 gate startup on the reported operating system, seccomp profile, or CPU/memory/PID
 capabilities. Runtime access or cleanup failures are logged and block polling
-until recovery. Unsupported workload options fail when the runtime launches a step.
+until recovery. PID-controller support is checked before each container attempt
+so a runtime cannot silently ignore the required process limit. This does not
+block startup or check-ins. Other unsupported workload options fail at launch.
 
 ### Native systemd
 
