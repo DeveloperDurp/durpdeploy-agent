@@ -38,6 +38,12 @@ func (r *ContainerExecutor) runAttempt(
 	stepCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	writer.cancel = cancel
+	if err := r.requirePIDLimit(stepCtx); err != nil {
+		if stepCtx.Err() != nil {
+			return stepCtx.Err()
+		}
+		return err
+	}
 	if *imageID == "" {
 		var err error
 		*imageID, err = r.prepareImage(stepCtx, job.containerImage)
@@ -65,14 +71,16 @@ func (r *ContainerExecutor) runAttempt(
 		}
 		result = errors.Join(result, writer.flush())
 	}()
-	args := []string{"run", "--interactive", "--pull=never", "--name=" + name,
+	args := []string{
+		"run", "--interactive", "--pull=never", "--name=" + name,
 		"--label=io.durpdeploy.agent=" + r.namespace,
 		"--label=io.durpdeploy.attempt=" + name,
 		"--network=none", "--read-only", "--cap-drop=ALL",
 		"--security-opt=no-new-privileges", "--user=65534:65534",
 		"--tmpfs=/tmp:rw,nosuid,nodev,size=64m,mode=1777",
 		"--env=HOME=/tmp", "--env=TERM=dumb", "--workdir=/tmp",
-		"--pids-limit=128", "--log-driver=none"}
+		"--pids-limit=128", "--log-driver=none",
+	}
 	if r.runtime == agentproto.RuntimePodman {
 		args = append(
 			args,
