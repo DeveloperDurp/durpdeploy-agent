@@ -45,10 +45,10 @@ Select `podman` and its existing local Unix socket for Podman. TCP and SSH
 endpoints are rejected. Install the selected client for a native agent. The
 agent image contains both clients, but mounts no socket by default.
 
-The runtime must support Linux containers, seccomp, and CPU/memory/PID cgroup
-limits. Rootless Podman needs all three controllers delegated to its service
-user. Preflight failure is logged and blocks polling until the runtime recovers;
-the agent never disables required isolation controls to make execution proceed.
+Runtime preflight checks socket connectivity and cleanup recovery. It does not
+gate startup on the reported operating system, seccomp profile, or CPU/memory/PID
+capabilities. Runtime access or cleanup failures are logged and block polling
+until recovery. Unsupported workload options fail when the runtime launches a step.
 
 ### Native systemd
 
@@ -111,9 +111,11 @@ The service limits and the step's PID limit and tmpfs capacity remain in place.
 Each step mounts no agent state, host directory, or runtime socket. The runner pulls missing
 images, rejects declared image volumes on both engines, and executes the
 inspected image ID for every retry of that step. The image must contain its selected interpreter.
-Preflight requires Docker's built-in seccomp profile or Podman's standard
-`/usr/share/containers/seccomp.json` profile on the runtime host. Every workload
-explicitly selects that profile; custom or unconfined defaults fail readiness.
+Every workload explicitly selects Docker's `seccomp=builtin` profile or Podman's
+`/usr/share/containers/seccomp.json` profile on the runtime host. Capability
+metadata does not block check-ins; the runtime must support those launch options
+to execute container steps. Older Docker versions that lack `seccomp=builtin`
+can check in but reject container step launches.
 Script exit 127 follows configured retries; it cannot prove a missing entrypoint.
 PowerShell scripts are staged inside the private `/tmp` and run with `-File`
 so multiline blocks and terminating errors retain script execution semantics.

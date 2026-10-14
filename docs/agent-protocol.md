@@ -241,8 +241,10 @@ are rejected. A host mode requires host interpreters; container mode requires
 both a ready runtime and container interpreters. A container-only agent reports
 an empty host interpreter array and omits `host` from its modes.
 
-Runtime preflight requires an accessible Unix socket, Linux, seccomp, and CPU,
-memory and PID cgroup support. Container steps request no per-step RAM ceiling
+Runtime preflight requires an accessible Unix socket and a responding runtime
+client, without checking operating-system, seccomp, or CPU/memory/PID capability
+metadata. Unsupported workload options fail at container launch.
+Container steps request no per-step RAM ceiling
 or CPU quota, including retries; applicable external limits still govern them.
 They retain the 128-process limit, read-only root, bounded 64 MiB tmpfs, non-root
 user, network isolation, dropped capabilities, and seccomp policy. Operators must
