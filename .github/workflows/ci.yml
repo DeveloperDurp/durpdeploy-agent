@@ -8,10 +8,29 @@ permissions:
   contents: read
 
 jobs:
+  version:
+    name: Compute build identity
+    runs-on: ubuntu-latest
+    outputs:
+      software_version: ${{ steps.metadata.outputs.software_version }}
+      version: ${{ steps.metadata.outputs.version }}
+      build_number: ${{ steps.metadata.outputs.build_number }}
+      commit: ${{ steps.metadata.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: metadata
+        run: bash scripts/build_metadata.sh >> "$GITHUB_OUTPUT"
+
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
@@ -23,7 +42,13 @@ jobs:
       - run: make build
 
   container:
+    needs: [version]
     runs-on: ubuntu-latest
+    env:
+      BUILD_VERSION: ${{ needs.version.outputs.software_version }}
+      BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
+      BUILD_COMMIT: ${{ needs.version.outputs.commit }}
+      BUILD_MODIFIED: 'false'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: make container-contract
@@ -31,6 +56,12 @@ jobs:
   container-executor:
     name: Container executor (${{ matrix.runtime }})
     runs-on: ubuntu-latest
+    needs: [version]
+    env:
+      BUILD_VERSION: ${{ needs.version.outputs.software_version }}
+      BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
+      BUILD_COMMIT: ${{ needs.version.outputs.commit }}
+      BUILD_MODIFIED: 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -48,11 +79,13 @@ jobs:
           image=localhost/durpdeploy-agent:executor-contract
           if [ "$ENGINE" = docker ]; then
             socket=unix:///var/run/docker.sock
-            docker build -t "$image" .
+            docker build --build-arg BUILD_VERSION --build-arg BUILD_NUMBER \
+              --build-arg BUILD_COMMIT --build-arg BUILD_MODIFIED -t "$image" .
           else
             systemctl --user start podman.socket
             socket="unix://$XDG_RUNTIME_DIR/podman/podman.sock"
-            podman build -t "$image" .
+            podman build --build-arg BUILD_VERSION --build-arg BUILD_NUMBER \
+              --build-arg BUILD_COMMIT --build-arg BUILD_MODIFIED -t "$image" .
           fi
           printf 'AGENT_TEST_RUNTIME=%s\nAGENT_TEST_SOCKET=%s\nAGENT_TEST_IMAGE=%s\n' \
             "$ENGINE" "$socket" "$image" >> "$GITHUB_ENV"
@@ -61,7 +94,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: DeveloperDurp/DurpDeploy
-          ref: f10bf4a5674202bc5a023129e0311b3b752b072a
+          ref: 488a91151f1aa02b46a3a47f406aeb003476181c
           path: server-api-contract
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -78,12 +111,51 @@ jobs:
         working-directory: server-api-contract
         run: go test -tags=e2e,agentcontainer -race -count=1 -timeout=8m -v -run '^TestAgentContainerAPIE2E$' ./internal/agentserver
 
+  version-e2e:
+    name: Agent build identity through fleet API and UI
+    runs-on: ubuntu-latest
+    env:
+      DURPDEPLOY_CONTAINER_RUNTIME: docker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check out coordinated server contract
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: DeveloperDurp/DurpDeploy
+          ref: 488a91151f1aa02b46a3a47f406aeb003476181c
+          path: server-version-contract
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.26.9'
+          cache: true
+          cache-dependency-path: server-version-contract/go.sum
+      - name: Prepare server assets
+        working-directory: server-version-contract
+        run: |
+          go tool templ generate
+          make swagger-ui-copy
+      - name: Verify embedded and overridden versions through pairing, polling, API, and UI
+        env:
+          DURPDEPLOY_PACKAGE_UI_EVIDENCE: ${{ runner.temp }}/agent-version-ui
+        run: bash scripts/check-agent-version-e2e.sh server-version-contract
+      - name: Upload agent version browser evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: agent-version-ui
+          path: ${{ runner.temp }}/agent-version-ui/
+          if-no-files-found: error
+
   image:
     name: Build and publish image
     if: >-
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    needs: [test, container, container-executor]
+    needs: [version, test, container, container-executor, version-e2e]
     runs-on: ubuntu-latest
     concurrency:
       group: agent-image-${{ github.ref }}
@@ -114,8 +186,8 @@ jobs:
           images: ghcr.io/developerdurp/durpdeploy-agent
           flavor: latest=false
           tags: |
+            type=raw,value=${{ needs.version.outputs.version }}
             type=sha,prefix=,enable=${{ github.ref == 'refs/heads/main' }}
-            type=ref,event=tag
             type=raw,value=latest
       - name: Build and push
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
@@ -123,7 +195,16 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            BUILD_VERSION=${{ needs.version.outputs.software_version }}
+            BUILD_NUMBER=${{ needs.version.outputs.build_number }}
+            BUILD_COMMIT=${{ needs.version.outputs.commit }}
+            BUILD_MODIFIED=false
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.version=${{ needs.version.outputs.software_version }}
+            org.opencontainers.image.revision=${{ needs.version.outputs.commit }}
+            info.durpdeploy.build-number=${{ needs.version.outputs.build_number }}
           cache-from: type=gha,scope=durpdeploy-agent
           cache-to: type=gha,scope=durpdeploy-agent,mode=max

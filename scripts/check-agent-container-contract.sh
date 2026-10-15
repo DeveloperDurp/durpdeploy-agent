@@ -162,7 +162,28 @@ if ! grep -Fq -- \
 	exit 1
 fi
 
-podman build -f "$root/Dockerfile" -t "$image" "$root"
+source "$root/scripts/build_metadata.sh"
+podman build --build-arg BUILD_VERSION="$BUILD_VERSION" \
+	--build-arg BUILD_COMMIT="$BUILD_COMMIT" \
+	--build-arg BUILD_NUMBER="$BUILD_NUMBER" \
+	--build-arg BUILD_MODIFIED="$BUILD_MODIFIED" \
+	-f "$root/Dockerfile" -t "$image" "$root"
+
+for label in "org.opencontainers.image.version=$BUILD_VERSION" \
+	"org.opencontainers.image.revision=$BUILD_COMMIT" \
+	"info.durpdeploy.build-number=$BUILD_NUMBER"; do
+	key=${label%%=*}
+	[[ $(podman image inspect --format "{{ index .Config.Labels \"$key\" }}" "$image") == "${label#*=}" ]]
+done
+identity="durpdeploy-agent $BUILD_VERSION (build $BUILD_NUMBER, commit $BUILD_COMMIT"
+[[ "$BUILD_MODIFIED" == false ]] || identity+=', modified'
+identity+=')'
+for argument in version --version -v; do
+	output=$(podman run --rm --read-only --network none \
+		--security-opt no-new-privileges:true --cap-drop ALL \
+		--env DURPDEPLOY_AGENT_CONTAINER_ENABLED=invalid "$image" "$argument")
+	[[ "$output" == "$identity" ]]
+done
 
 if [ "$(podman image inspect --format '{{.Config.User}}' "$image")" != 10001 ]; then
 	echo 'agent container contract: image user is not the service identity' >&2

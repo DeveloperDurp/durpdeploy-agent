@@ -13,6 +13,7 @@ import (
 
 	runner "github.com/DeveloperDurp/durpdeploy-agent/executor"
 	"github.com/DeveloperDurp/durpdeploy-agent/internal/agentclient"
+	"github.com/DeveloperDurp/durpdeploy-agent/internal/buildinfo"
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
 	"github.com/DeveloperDurp/durpdeploy-agent/state"
 )
@@ -23,14 +24,14 @@ const reconnectDelay = time.Second
 
 var newExecutor = runner.NewExecutor
 
-const agentHelpText = `Usage: durpdeploy-agent
+const agentHelpText = `Usage: durpdeploy-agent [version|--version|-v|help]
 
 Starts a local pairing listener until paired, then polls the persisted server.
 
 Inputs:
   DURPDEPLOY_AGENT_LISTEN_ADDR  local address used only while pairing
   DURPDEPLOY_AGENT_STATE_DIR    private persistent state directory
-  DURPDEPLOY_AGENT_VERSION      agent version sent after pairing
+  DURPDEPLOY_AGENT_VERSION      optional reported version override (defaults to build identity)
   DURPDEPLOY_AGENT_CONTAINER_ENABLED  enable agent/3 container execution (false)
   DURPDEPLOY_AGENT_CONTAINER_RUNTIME  docker or podman (required when enabled)
   DURPDEPLOY_AGENT_CONTAINER_SOCKET   absolute unix socket URL (required when enabled)
@@ -64,16 +65,26 @@ func main() {
 	if status, handled := runner.HostSupervisorMain(); handled {
 		os.Exit(status)
 	}
-	if len(os.Args) == 2 &&
-		(os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "-h") {
-		fmt.Fprint(os.Stdout, agentHelp())
-		return
+	if len(os.Args) == 2 {
+		switch os.Args[1] {
+		case "help", "--help", "-h":
+			fmt.Fprint(os.Stdout, agentHelp())
+			return
+		case "version", "--version", "-v":
+			fmt.Println("durpdeploy-agent " + buildinfo.Current().String())
+			if override := os.Getenv("DURPDEPLOY_AGENT_VERSION"); override != "" {
+				fmt.Printf("Reported agent version override: %q\n", override)
+			}
+			return
+		}
 	}
 	configuration, err := loadConfig()
 	if err != nil {
 		slog.Error("invalid agent configuration", "err", err)
 		os.Exit(1)
 	}
+	slog.Info("agent build", "build", buildinfo.Current().String(),
+		"reported_version", configuration.agentVersion)
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		syscall.SIGINT,

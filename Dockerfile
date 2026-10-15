@@ -2,6 +2,9 @@
 # Agent-only image: compile no server binary or web assets.
 FROM docker.io/library/golang:1.26-alpine AS builder
 
+# hadolint ignore=DL3018
+RUN apk add --no-cache bash
+
 WORKDIR /build
 
 COPY go.mod ./
@@ -16,10 +19,22 @@ COPY payload ./payload
 COPY protocol ./protocol
 COPY state ./state
 COPY transport ./transport
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags='-w -s' -trimpath \
-    -o /out/durpdeploy-agent ./cmd/agent
+COPY scripts/build_metadata.sh scripts/build_agent.sh ./scripts/
+ARG BUILD_VERSION=dev
+ARG BUILD_COMMIT=unknown
+ARG BUILD_NUMBER=unknown
+ARG BUILD_MODIFIED=false
+RUN CGO_ENABLED=0 GOOS=linux bash scripts/build_agent.sh -trimpath \
+    -o /out/durpdeploy-agent && /out/durpdeploy-agent version
 
 FROM docker.io/library/alpine:3.20
+
+ARG BUILD_VERSION=dev
+ARG BUILD_COMMIT=unknown
+ARG BUILD_NUMBER=unknown
+LABEL org.opencontainers.image.version=$BUILD_VERSION \
+      org.opencontainers.image.revision=$BUILD_COMMIT \
+      info.durpdeploy.build-number=$BUILD_NUMBER
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache bash ca-certificates docker-cli podman-remote && \

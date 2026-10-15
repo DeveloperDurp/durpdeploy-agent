@@ -8,6 +8,7 @@ import (
 
 	"github.com/DeveloperDurp/durpdeploy-agent/bootstrap"
 	"github.com/DeveloperDurp/durpdeploy-agent/executor"
+	"github.com/DeveloperDurp/durpdeploy-agent/internal/buildinfo"
 	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
 
@@ -51,22 +52,25 @@ func loadConfig() (config, error) {
 		}
 	}
 	return config{
-		containers: enabled,
-		container:  container,
-		stateDir:   stateDir,
-		agentVersion: agentproto.AgentVersion(
-			os.Getenv("DURPDEPLOY_AGENT_VERSION"),
-		),
+		containers:   enabled,
+		container:    container,
+		stateDir:     stateDir,
+		agentVersion: reportedAgentVersion(),
 		bootstrap: agentbootstrap.Config{
-			StateDir: stateDir,
-			AgentVersion: agentproto.AgentVersion(
-				os.Getenv("DURPDEPLOY_AGENT_VERSION"),
-			),
+			StateDir:     stateDir,
+			AgentVersion: reportedAgentVersion(),
 			ListenAddr: os.Getenv(
 				"DURPDEPLOY_AGENT_LISTEN_ADDR",
 			),
 		},
 	}, nil
+}
+
+func reportedAgentVersion() agentproto.AgentVersion {
+	if override := os.Getenv("DURPDEPLOY_AGENT_VERSION"); override != "" {
+		return agentproto.AgentVersion(override)
+	}
+	return agentproto.AgentVersion(buildinfo.Current().String())
 }
 
 func stateDirectory() (string, error) {
