@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -65,18 +66,8 @@ func main() {
 	if status, handled := runner.HostSupervisorMain(); handled {
 		os.Exit(status)
 	}
-	if len(os.Args) == 2 {
-		switch os.Args[1] {
-		case "help", "--help", "-h":
-			fmt.Fprint(os.Stdout, agentHelp())
-			return
-		case "version", "--version", "-v":
-			fmt.Println("durpdeploy-agent " + buildinfo.Current().String())
-			if override := os.Getenv("DURPDEPLOY_AGENT_VERSION"); override != "" {
-				fmt.Printf("Reported agent version override: %q\n", override)
-			}
-			return
-		}
+	if writeAgentDiagnostic(os.Args[1:], os.Stdout) {
+		return
 	}
 	configuration, err := loadConfig()
 	if err != nil {
@@ -99,6 +90,24 @@ func main() {
 		slog.Error("agent stopped", "err", err)
 		os.Exit(1)
 	}
+}
+
+func writeAgentDiagnostic(arguments []string, output io.Writer) bool {
+	if len(arguments) != 1 {
+		return false
+	}
+	switch arguments[0] {
+	case "help", "--help", "-h":
+		fmt.Fprint(output, agentHelp())
+	case "version", "--version", "-v":
+		fmt.Fprintln(output, "durpdeploy-agent "+buildinfo.Current().String())
+		if override := os.Getenv("DURPDEPLOY_AGENT_VERSION"); override != "" {
+			fmt.Fprintf(output, "Reported agent version override: %q\n", override)
+		}
+	default:
+		return false
+	}
+	return true
 }
 
 func agentHelp() string {

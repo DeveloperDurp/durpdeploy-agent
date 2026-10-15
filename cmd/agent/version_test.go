@@ -1,13 +1,46 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/DeveloperDurp/durpdeploy-agent/internal/buildinfo"
 )
+
+func TestAgentDiagnostic(t *testing.T) {
+	for _, argument := range []string{"version", "--version", "-v", "help", "--help", "-h"} {
+		for _, override := range []string{"", "operator\nversion"} {
+			t.Run(argument+"/"+override, func(t *testing.T) {
+				t.Setenv("DURPDEPLOY_AGENT_VERSION", override)
+				var output bytes.Buffer
+				if !writeAgentDiagnostic([]string{argument}, &output) {
+					t.Fatal("diagnostic command was not handled")
+				}
+				want := agentHelp()
+				if argument == "version" || argument == "--version" || argument == "-v" {
+					want = "durpdeploy-agent " + buildinfo.Current().String() + "\n"
+					if override != "" {
+						want += "Reported agent version override: \"operator\\nversion\"\n"
+					}
+				}
+				if output.String() != want {
+					t.Fatalf("diagnostic=%q want=%q", output.String(), want)
+				}
+			})
+		}
+	}
+	for _, arguments := range [][]string{nil, {"unknown"}, {"version", "extra"}} {
+		var output bytes.Buffer
+		if writeAgentDiagnostic(arguments, &output) || output.Len() != 0 {
+			t.Fatalf("unexpected diagnostic for arguments %q: %q", arguments, output.String())
+		}
+	}
+}
 
 func TestAgentVersionSubprocess(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "durpdeploy-agent")
