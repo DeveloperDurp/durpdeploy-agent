@@ -14,14 +14,20 @@ Requires Go 1.25.7 or newer.
 
 ```sh
 make build
+./durpdeploy-agent version
 make check
 ```
 
 CI publishes `ghcr.io/developerdurp/durpdeploy-agent` for `linux/amd64` and
 `linux/arm64` after the tests and container contract pass. Pushes to `main`
-publish the short commit SHA and `latest` as image tags. Pushes of `v*` tags
-publish the tag name and `latest`. Pull requests and other branches run checks
+publish a development version, the short commit SHA, and `latest` as image tags.
+Pushes of valid semantic `v*` tags publish the normalized tag name and `latest`.
+Pull requests and other branches run checks
 without publishing images. Tagged releases also include standalone Linux binaries.
+
+The executable reports its software version, commit-count build number, source
+commit, and source changes. Read [software versions and build numbers](docs/versioning.md)
+for release tagging, Docker build arguments, overrides, and upgrade diagnostics.
 
 ## Development
 
@@ -63,7 +69,7 @@ Configuration remains compatible with existing installations:
 
 - `DURPDEPLOY_AGENT_LISTEN_ADDR`
 - `DURPDEPLOY_AGENT_STATE_DIR`
-- `DURPDEPLOY_AGENT_VERSION`
+- `DURPDEPLOY_AGENT_VERSION` (optional reported override; defaults to build identity)
 - `DURPDEPLOY_EXTRA_SCRUB_PATTERNS`
 
 The state directory contains the persistent agent identity and server pins. Do

@@ -3,7 +3,31 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/DeveloperDurp/durpdeploy-agent/internal/buildinfo"
 )
+
+func TestLoadConfig_reportedVersion(t *testing.T) {
+	for _, override := range []string{"", "operator-version"} {
+		t.Run(override, func(t *testing.T) {
+			t.Setenv("DURPDEPLOY_AGENT_VERSION", override)
+			t.Setenv("DURPDEPLOY_AGENT_CONTAINER_ENABLED", "false")
+			configuration, err := loadConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := override
+			if want == "" {
+				want = buildinfo.Current().String()
+			}
+			if string(configuration.agentVersion) != want ||
+				string(configuration.bootstrap.AgentVersion) != want {
+				t.Fatalf("pairing/poll version=%q/%q want=%q",
+					configuration.bootstrap.AgentVersion, configuration.agentVersion, want)
+			}
+		})
+	}
+}
 
 func TestAgentHelp_listsOnlyLocalBootstrapInputs(t *testing.T) {
 	// Given

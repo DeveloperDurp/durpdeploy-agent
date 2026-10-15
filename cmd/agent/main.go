@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 
 	runner "github.com/DeveloperDurp/durpdeploy-agent/executor"
 	"github.com/DeveloperDurp/durpdeploy-agent/internal/agentclient"
+	"github.com/DeveloperDurp/durpdeploy-agent/internal/buildinfo"
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
 	"github.com/DeveloperDurp/durpdeploy-agent/state"
 )
@@ -23,14 +25,14 @@ const reconnectDelay = time.Second
 
 var newExecutor = runner.NewExecutor
 
-const agentHelpText = `Usage: durpdeploy-agent
+const agentHelpText = `Usage: durpdeploy-agent [version|--version|-v|help]
 
 Starts a local pairing listener until paired, then polls the persisted server.
 
 Inputs:
   DURPDEPLOY_AGENT_LISTEN_ADDR  local address used only while pairing
   DURPDEPLOY_AGENT_STATE_DIR    private persistent state directory
-  DURPDEPLOY_AGENT_VERSION      agent version sent after pairing
+  DURPDEPLOY_AGENT_VERSION      optional reported version override (defaults to build identity)
   DURPDEPLOY_AGENT_CONTAINER_ENABLED  enable agent/3 container execution (false)
   DURPDEPLOY_AGENT_CONTAINER_RUNTIME  docker or podman (required when enabled)
   DURPDEPLOY_AGENT_CONTAINER_SOCKET   absolute unix socket URL (required when enabled)
@@ -64,9 +66,7 @@ func main() {
 	if status, handled := runner.HostSupervisorMain(); handled {
 		os.Exit(status)
 	}
-	if len(os.Args) == 2 &&
-		(os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "-h") {
-		fmt.Fprint(os.Stdout, agentHelp())
+	if writeAgentDiagnostic(os.Args[1:], os.Stdout) {
 		return
 	}
 	configuration, err := loadConfig()
@@ -74,6 +74,8 @@ func main() {
 		slog.Error("invalid agent configuration", "err", err)
 		os.Exit(1)
 	}
+	slog.Info("agent build", "build", buildinfo.Current().String(),
+		"reported_version", configuration.agentVersion)
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		syscall.SIGINT,
@@ -88,6 +90,24 @@ func main() {
 		slog.Error("agent stopped", "err", err)
 		os.Exit(1)
 	}
+}
+
+func writeAgentDiagnostic(arguments []string, output io.Writer) bool {
+	if len(arguments) != 1 {
+		return false
+	}
+	switch arguments[0] {
+	case "help", "--help", "-h":
+		fmt.Fprint(output, agentHelp())
+	case "version", "--version", "-v":
+		fmt.Fprintln(output, "durpdeploy-agent "+buildinfo.Current().String())
+		if override := os.Getenv("DURPDEPLOY_AGENT_VERSION"); override != "" {
+			fmt.Fprintf(output, "Reported agent version override: %q\n", override)
+		}
+	default:
+		return false
+	}
+	return true
 }
 
 func agentHelp() string {

@@ -359,8 +359,9 @@ documentation, tickets, shell history, or logs. Pairing persists the server
 endpoint, pinned server identity, agent identity, and agent ID in the private
 state directory.
 
-After pairing, restart with `DURPDEPLOY_AGENT_STATE_DIR` and
-`DURPDEPLOY_AGENT_VERSION`; do not supply a server URL, certificate,
+After pairing, restart with `DURPDEPLOY_AGENT_STATE_DIR`; the embedded build
+identity is reported by default. `DURPDEPLOY_AGENT_VERSION` remains an optional
+reported override. Do not supply a server URL, certificate,
 fingerprint, token, or agent ID manually. Normal work is outbound polling,
 heartbeats, log uploads, and result or cancellation acknowledgements. The agent
 stores no server secret or deployment payload at rest. A current claim marker
@@ -375,8 +376,10 @@ Build the agent binary from the repository. This builds only `cmd/agent` and
 does not create or open a database:
 
 ```bash
-make build-agent
+make build
+./durpdeploy-agent version
 sudo install -o root -g root -m 0755 ./durpdeploy-agent /usr/local/bin/durpdeploy-agent
+/usr/local/bin/durpdeploy-agent --version
 ```
 
 Create the dedicated account and private state directory:
@@ -414,8 +417,11 @@ do not include a credential-shaped literal:
 
 ```dotenv
 DURPDEPLOY_AGENT_LISTEN_ADDR=0.0.0.0:10943
-DURPDEPLOY_AGENT_VERSION=<agent-version>
 ```
+
+Leave `DURPDEPLOY_AGENT_VERSION` unset to report the executable's build identity.
+For a locally stamped image, follow the Docker build arguments in
+[software versions and build numbers](versioning.md#containers-and-release-binaries).
 
 Docker Compose:
 
@@ -513,7 +519,12 @@ API routes are not valid substitutes. A 404 often means the agent URL points
 at Caddy or port 443 instead of the direct listener, or the server binary was
 built before the listener code was installed. Confirm the server has all three
 listener variables, check `ss -ltn` for 10943, verify the installed binary and
-restart the server. Rebuild the agent with `make build-agent` and reinstall it
+restart the server. Check `/usr/local/bin/durpdeploy-agent version` and compare
+its full source commit with the expected artifact. Version commands work without
+runtime configuration and while the service holds its state lease. An explicit
+`DURPDEPLOY_AGENT_VERSION` override is labeled separately in the output; remove
+it if it masks the version expected in fleet diagnostics.
+Rebuild the agent with `make build` and reinstall it
 when its behavior does not match the checkout.
 
 ### Wrong fingerprint
@@ -577,9 +588,13 @@ the state file by guesswork.
 
 ## Upgrades, rollback, and backup scope
 
-Upgrade the server and agents from the same repository revision when possible.
+Use compatible server and agent releases. Check `durpdeploy-agent --version`
+before and after installation and compare the embedded commit with the intended
+artifact. See [software versions and build numbers](versioning.md).
 For an agent, build a new `durpdeploy-agent`, install it over the binary, and
-restart through the normal controlled pairing procedure. Preserve the state
+restart the service. The next poll reports the new build identity unless a
+reported override is configured; compatible upgrades do not require re-pairing.
+Preserve the state
 directory across a compatible upgrade. If rollback is required, stop the
 service, install the previous binary, and restore the matching known-good
 configuration. Do not delete pins or identity files during an ordinary binary
