@@ -147,13 +147,18 @@ func testAgentBuildIdentityFleet(t *testing.T, initialOverride string) {
 	phase := 0
 	assertReport := func(want string) {
 		t.Helper()
-		select {
-		case got := <-polls:
-			if got != want {
-				t.Fatalf("poll version=%q want=%q", got, want)
+		// Browser setup can queue more reports from the previous process.
+		pollDeadline := time.After(10 * time.Second)
+	waitForPoll:
+		for {
+			select {
+			case got := <-polls:
+				if got == want {
+					break waitForPoll
+				}
+			case <-pollDeadline:
+				t.Fatalf("agent did not poll with build identity %q", want)
 			}
-		case <-time.After(10 * time.Second):
-			t.Fatal("agent did not poll with build identity")
 		}
 		deadline := time.Now().Add(5 * time.Second)
 		for {
@@ -235,6 +240,8 @@ func testAgentBuildIdentityFleet(t *testing.T, initialOverride string) {
 	stop()
 	for _, override := range []string{"", "poll-override", ""} {
 		// Reuse the original paired state across an upgrade and override changes.
+		// Queue a prior report to exercise slow browser setup deterministically.
+		polls <- want
 		stop, _ = startVersionContractAgent(t, upgrade, stateDir, address, override)
 		want = development
 		if override != "" {
