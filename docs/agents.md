@@ -242,13 +242,14 @@ There are two separate HTTPS paths:
 * Caddy serves the browser and JSON API HTTPS origin on port 443. Caddy obtains
   the public certificate from Let's Encrypt and reverse proxies to the normal
   application listener on port 8080.
-* The dedicated agent listener uses port 10943, or another operator-selected
+* The dedicated agent listener uses port 23187, or another operator-selected
   address, directly on the DurpDeploy process. It uses TLS 1.3, self-signed
   Ed25519 identities, and direct SHA-256 certificate fingerprint pinning. It is
   **not routed through Caddy** and must not be terminated by Caddy.
 
-Allow inbound TCP 10943 for the server’s durable direct listener; keep application
-port 8080 private. During pairing, each unpaired agent briefly opens a temporary
+Allow inbound TCP 23187 for the server's durable direct listener.
+Keep application port 8080 private.
+During pairing, each unpaired agent briefly opens a temporary
 local callback listener for one-shot `server-init`; once paired, that listener is
 closed. Agents need outbound TCP access to the server’s control listener for
 polling and heartbeats; no persistent inbound agent listener is required.
@@ -262,8 +263,8 @@ starting `go run ./cmd/server`; the public origin hostname becomes the
 self-signed certificate SAN:
 
 ```bash
-DURPDEPLOY_AGENT_LISTEN_ADDR=:10943 \
-  DURPDEPLOY_AGENT_PUBLIC_URL=https://localhost \
+DURPDEPLOY_AGENT_LISTEN_ADDR=:23187 \
+  DURPDEPLOY_AGENT_PUBLIC_URL=https://localhost:23187 \
   DURPDEPLOY_AGENT_IDENTITY_DIR=.agent-identity \
   go run ./cmd/server
 ```
@@ -272,11 +273,12 @@ The public URL is the direct server mTLS endpoint, not the Caddy/Let's Encrypt
 browser or API endpoint. The agent is outbound-only and has no database; its
 state directory is not server storage.
 
-The listener is disabled unless all three variables are set together:
+The server listener defaults to `0.0.0.0:23187` and advertises `https://localhost:23187`.
+For remote agents, configure a reachable public URL and a persistent identity directory:
 
 ```dotenv
-DURPDEPLOY_AGENT_LISTEN_ADDR=0.0.0.0:10943
-DURPDEPLOY_AGENT_PUBLIC_URL=https://<agent-control-host>
+DURPDEPLOY_AGENT_LISTEN_ADDR=0.0.0.0:23187
+DURPDEPLOY_AGENT_PUBLIC_URL=https://<agent-control-host>:23187
 DURPDEPLOY_AGENT_IDENTITY_DIR=/var/lib/durpdeploy/agent-identity
 ```
 
@@ -303,13 +305,13 @@ pairing:
 
 ```bash
 sudo journalctl -u durpdeploy -n 100 --no-pager
-sudo ss -ltn '( sport = :10943 )'
+sudo ss -ltn '( sport = :23187 )'
 ```
 
 For Compose, add the same three variables to `compose.app.env`, mount a private
 server identity directory at the configured path, and publish only the direct
 listener port to the required agent network. The stock Compose files publish
-only Caddy's 80 and 443, so port 10943 is intentionally not exposed by
+only Caddy's 80 and 443, so port 23187 is intentionally not exposed by
 default. Do not put the server identity directory in the agent service.
 
 ## Admin UI pairing workflow
@@ -339,7 +341,7 @@ Start an unpaired agent with only local inputs:
 
 ```dotenv
 DURPDEPLOY_AGENT_STATE_DIR=/var/lib/durpdeploy-agent
-DURPDEPLOY_AGENT_LISTEN_ADDR=0.0.0.0:10943
+DURPDEPLOY_AGENT_LISTEN_ADDR=0.0.0.0:23187
 DURPDEPLOY_AGENT_VERSION=<agent-version>
 ```
 
@@ -416,7 +418,7 @@ Create `compose.agent.env` with the same local variables, use mode `0600`, and
 do not include a credential-shaped literal:
 
 ```dotenv
-DURPDEPLOY_AGENT_LISTEN_ADDR=0.0.0.0:10943
+DURPDEPLOY_AGENT_LISTEN_ADDR=0.0.0.0:23187
 ```
 
 Leave `DURPDEPLOY_AGENT_VERSION` unset to report the executable's build identity.
@@ -517,9 +519,10 @@ assigned agent, not local execution.
 The dedicated listener has its own routes under `/agent/v1`; the browser and
 API routes are not valid substitutes. A 404 often means the agent URL points
 at Caddy or port 443 instead of the direct listener, or the server binary was
-built before the listener code was installed. Confirm the server has all three
-listener variables, check `ss -ltn` for 10943, verify the installed binary and
-restart the server. Check `/usr/local/bin/durpdeploy-agent version` and compare
+built before the listener code was installed.
+Check the server's listener settings and use `ss -ltn` to check port 23187.
+Verify the installed binary and restart the server.
+Check `/usr/local/bin/durpdeploy-agent version` and compare
 its full source commit with the expected artifact. Version commands work without
 runtime configuration and while the service holds its state lease. An explicit
 `DURPDEPLOY_AGENT_VERSION` override is labeled separately in the output; remove
@@ -588,6 +591,38 @@ the state file by guesswork.
 
 ## Upgrades, rollback, and backup scope
 
+### Migrate the agent port
+
+The default pairing listener changes from TCP port `10943` to `23187`.
+Existing paired agents retain their stored server endpoint and do not reopen the pairing listener during a compatible upgrade.
+
+1. Wait for active work to finish before stopping the agent.
+2. Back up the private state directory and preserve its permissions.
+3. Install the new binary without deleting the state directory, identities, or pins.
+4. If an explicit listener override exists, retain it or change `DURPDEPLOY_AGENT_LISTEN_ADDR` to the intended address.
+5. For a new container pairing, map the selected host port to container port `23187`.
+6. If temporary inbound firewall access is required for pairing, allow only the selected port from the server.
+7. Remove temporary inbound access after pairing completes.
+8. Permit outbound TCP access to the server's dedicated agent endpoint.
+9. Restart the agent and verify polling, a deployment, and streamed logs.
+
+For systemd, set listener overrides in `/etc/durpdeploy-agent.env`.
+For Compose, use `compose.agent.env` and an operator-selected temporary pairing port mapping.
+The supplied image and Compose definitions keep pairing ports unpublished by default.
+
+The server's new default endpoint uses port `23187`.
+Existing agents continue to use the server URL saved during pairing.
+Changing the server's advertised URL does not update existing agent state.
+Keep the old server endpoint reachable through TCP forwarding, or retain explicit server port overrides.
+Preserve TLS passthrough and the existing server identity during this transition.
+Do not reset identities, change pins, or edit pairing records to change a port.
+Coordinate server endpoint migration with [server PR #208](https://github.com/DeveloperDurp/DurpDeploy/pull/208).
+
+`make dev` publishes host port `23188` to container port `23187`.
+This keeps the local pairing listener separate from the server's port `23187`.
+Set `AGENT_PORT` to retain a different host port.
+Explicit legacy listener and host port overrides remain supported.
+
 Use compatible server and agent releases. Check `durpdeploy-agent --version`
 before and after installation and compare the embedded commit with the intended
 artifact. See [software versions and build numbers](versioning.md).
@@ -607,7 +642,7 @@ is not a database, and restoring it to another host transfers the identity.
 
 ## Safety rules
 
-Do not route port 10943 through Caddy. Do not use a central CA, trust-on-first-
+Do not route port 23187 through Caddy. Do not use a central CA, trust-on-first-
 use, SSH, a trust-all TLS setting, inbound agent ports, or a shared agent state
 directory. Do not give an agent the server database, server secret key, Docker
 socket, or control-plane state directory.

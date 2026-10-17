@@ -49,8 +49,8 @@ assert_rejected Dockerfile 'SYS_ADMIN' 'Dockerfile requires SYS_ADMIN'
 assert_rejected Dockerfile 'sys_admin' 'Dockerfile requires SYS_ADMIN'
 assert_rejected Makefile $'dev:\n\tpodman run --rm bad-image' \
 	'dev must delegate one build and one run to agent-run'
-assert_rejected Makefile 'dev: AGENT_PORT = 10943' \
-	'dev must publish host port 10944 to 10943'
+assert_rejected Makefile 'dev: AGENT_PORT = 23187' \
+	'dev must publish host port 23188 to 23187'
 assert_rejected Makefile 'dev: AGENT_STATE_VOLUME = .local' \
 	'dev must preserve the named agent state volume'
 

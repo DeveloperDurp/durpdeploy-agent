@@ -122,8 +122,8 @@ make_output() {
 }
 
 agent_run=$(make_output agent-run)
-if ! grep -Fq -- '--publish 10943:10943' <<<"$agent_run"; then
-	echo 'agent container contract: agent-run must publish 10943:10943' >&2
+if ! grep -Fq -- '--publish 23187:23187' <<<"$agent_run"; then
+	echo 'agent container contract: agent-run must publish 23187:23187' >&2
 	exit 1
 fi
 
@@ -133,8 +133,8 @@ if [ "$(grep -Fc -- 'podman build' <<<"$dev")" -ne 1 ] || \
 	echo 'agent container contract: dev must delegate one build and one run to agent-run' >&2
 	exit 1
 fi
-if ! grep -Fq -- '--publish 10944:10943' <<<"$dev"; then
-	echo 'agent container contract: dev must publish host port 10944 to 10943' >&2
+if ! grep -Fq -- '--publish 23188:23187' <<<"$dev"; then
+	echo 'agent container contract: dev must publish host port 23188 to 23187' >&2
 	exit 1
 fi
 if ! grep -Fq -- '--volume durpdeploy-agent-state:/var/lib/durpdeploy-agent' \
@@ -144,12 +144,12 @@ if ! grep -Fq -- '--volume durpdeploy-agent-state:/var/lib/durpdeploy-agent' \
 fi
 
 dev_override=$(make -s -C "$root" -n AGENT_PORT=12044 dev)
-if ! grep -Fq -- '--publish 12044:10943' <<<"$dev_override"; then
+if ! grep -Fq -- '--publish 12044:23187' <<<"$dev_override"; then
 	echo 'agent container contract: AGENT_PORT override must reach dev' >&2
 	exit 1
 fi
 dev_environment_override=$(AGENT_PORT=13044 make -s -C "$root" -n dev)
-if ! grep -Fq -- '--publish 13044:10943' <<<"$dev_environment_override"; then
+if ! grep -Fq -- '--publish 13044:23187' <<<"$dev_environment_override"; then
 	echo 'agent container contract: environment AGENT_PORT override must reach dev' >&2
 	exit 1
 fi

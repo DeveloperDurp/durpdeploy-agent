@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	DefaultListenAddr = ":10943"
+	DefaultListenAddr = ":23187"
 	pairingTTL        = 10 * time.Minute
 )
 

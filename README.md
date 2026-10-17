@@ -38,8 +38,8 @@ make dev
 ```
 
 This rebuilds the image once per invocation; it does not hot-reload source
-changes. The default host port `10944` maps to the agent's container pairing
-port `10943`, while the server's direct listener uses host port `10943`. If
+changes. The default host port `23188` maps to the agent's container pairing
+port `23187`, while the server's direct listener uses host port `23187`. If
 the development port is occupied, choose another one explicitly instead of
 falling back automatically:
 
@@ -64,6 +64,10 @@ Create the service account described in
 [`docs/agents.md`](docs/agents.md), then start `durpdeploy-agent` through the
 provided systemd or container contract. On first start the process prints its
 pairing code and certificate fingerprint.
+
+The pairing listener defaults to TCP port `23187`.
+Set `DURPDEPLOY_AGENT_LISTEN_ADDR` to use an explicit address.
+For upgrades, follow the [port migration instructions](docs/agents.md#migrate-the-agent-port).
 
 Configuration remains compatible with existing installations:
 

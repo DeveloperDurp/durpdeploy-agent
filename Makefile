@@ -3,14 +3,14 @@
 BINARY_NAME := durpdeploy-agent
 IMAGE ?= localhost/durpdeploy-agent:local
 AGENT_STATE_VOLUME ?= durpdeploy-agent-state
-AGENT_PORT ?= 10943
+AGENT_PORT ?= 23187
 AGENT_VERSION ?=
 
 dev_port_origin := $(origin AGENT_PORT)
 dev_port_value := $(AGENT_PORT)
 # Keep the agent callback separate from the server listener by default while
 # preserving explicit command-line and environment overrides.
-dev: AGENT_PORT = $(if $(filter command line environment,$(dev_port_origin)),$(dev_port_value),10944)
+dev: AGENT_PORT = $(if $(filter command line environment,$(dev_port_origin)),$(dev_port_value),23188)
 dev: agent-run
 
 build:
@@ -36,7 +36,7 @@ container:
 agent-run: container
 	podman run --rm \
 		--read-only \
-		--publish $(AGENT_PORT):10943 \
+		--publish $(AGENT_PORT):23187 \
 		--volume $(AGENT_STATE_VOLUME):/var/lib/durpdeploy-agent \
 		--tmpfs /tmp:size=64m,mode=1777 \
 		--security-opt no-new-privileges=true \
@@ -44,7 +44,7 @@ agent-run: container
 		--memory 512m \
 		--cpus 1.0 \
 		--pids-limit 128 \
-		--env DURPDEPLOY_AGENT_LISTEN_ADDR=0.0.0.0:10943 \
+		--env DURPDEPLOY_AGENT_LISTEN_ADDR=0.0.0.0:23187 \
 		--env DURPDEPLOY_AGENT_STATE_DIR=/var/lib/durpdeploy-agent \
 		$(if $(strip $(AGENT_VERSION)),--env DURPDEPLOY_AGENT_VERSION=$(AGENT_VERSION) )$(IMAGE)
 
