@@ -37,7 +37,11 @@ func TestStagingRejectsRedirectsBeforeForwardingCredentials(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					defer source.Close()
+					t.Cleanup(func() {
+						if err := source.Close(); err != nil {
+							t.Error(err)
+						}
+					})
 				}
 				_, err := client.Staging(t.Context(), agentproto.PollResponse{
 					DeploymentID: 42, ClaimToken: "claim-secret",

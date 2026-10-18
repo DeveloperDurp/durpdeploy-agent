@@ -34,4 +34,6 @@ bin/
 tmp/
 
 artifacts/
+.cache/
+.ci/
 .omo/run-continuation

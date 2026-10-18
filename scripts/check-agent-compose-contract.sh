@@ -52,7 +52,7 @@ for path in list(root.glob("*/agent.json")) + list(root.glob("*/agent.yml")):
     def fail(message):
         raise SystemExit(f"agent compose contract: {name} {message}")
 
-    if agent["image"] != "ghcr.io/developerdurp/durpdeploy-agent:latest":
+    if agent["image"] != "registry.durp.info/durfy/apps/durp-deploy-agent:latest":
         fail("uses an unexpected image")
     cap_drop = [str(value).upper() for value in agent["cap_drop"]]
     if cap_drop != ["ALL"]:

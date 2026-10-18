@@ -1,6 +1,6 @@
 services:
   agent:
-    image: ghcr.io/developerdurp/durpdeploy-agent:latest
+    image: registry.durp.info/durfy/apps/durp-deploy-agent:latest
     build: .
     restart: unless-stopped
     user: "10001:10001"

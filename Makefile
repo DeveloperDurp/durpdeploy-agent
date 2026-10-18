@@ -1,6 +1,7 @@
-.PHONY: build dev test e2e build-version-test container container-contract container-contract-test compose-contract compose-contract-test systemd-contract systemd-contract-test documentation-contract check agent-run container-executor-contract
+.PHONY: build dev test e2e build-version-test container container-contract container-contract-test compose-contract compose-contract-test systemd-contract systemd-contract-test documentation-contract ci-contract check agent-run container-executor-contract
 
 BINARY_NAME := durpdeploy-agent
+GO_TEST ?= go test
 IMAGE ?= localhost/durpdeploy-agent:local
 AGENT_STATE_VOLUME ?= durpdeploy-agent-state
 AGENT_PORT ?= 23187
@@ -21,10 +22,10 @@ build-version-test:
 	bash scripts/build_version_test.sh
 
 test:
-	go test -count=1 ./...
+	$(GO_TEST) -count=1 ./...
 
 e2e:
-	go test -count=1 -tags agenttest ./cmd/agent -run '^TestAgentSubprocess_'
+	$(GO_TEST) -count=1 -tags agenttest ./cmd/agent -run '^TestAgentSubprocess_'
 
 container:
 	bash -c 'source scripts/build_metadata.sh; \
@@ -72,4 +73,7 @@ systemd-contract-test:
 documentation-contract:
 	bash ./scripts/check-agent-documentation-contract.sh
 
-check: test e2e build-version-test container-contract-test compose-contract compose-contract-test systemd-contract systemd-contract-test documentation-contract
+ci-contract:
+	python3 -m unittest discover -s scripts/ci -p '*_test.py'
+
+check: test e2e build-version-test container-contract-test compose-contract compose-contract-test systemd-contract systemd-contract-test documentation-contract ci-contract

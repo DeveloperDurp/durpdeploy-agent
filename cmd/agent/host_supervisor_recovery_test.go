@@ -110,7 +110,9 @@ func testHostSupervisorFailureRecovery(t *testing.T, root string) {
 		}
 	case <-time.After(5 * time.Second):
 		stop()
-		<-done
+		if err := <-done; err != nil {
+			t.Logf("forced agent exit: %v", err)
+		}
 		t.Fatal("restart did not recover the saved result")
 	}
 	stop()

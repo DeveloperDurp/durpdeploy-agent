@@ -80,7 +80,11 @@ func TestContainer_PID_probe_preserves_parent_cancellation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer listener.Close()
+			t.Cleanup(func() {
+				if err := listener.Close(); err != nil {
+					t.Error(err)
+				}
+			})
 			if err := listener.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
 				t.Fatal(err)
 			}

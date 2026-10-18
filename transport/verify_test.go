@@ -260,7 +260,11 @@ func serveTLS(t *testing.T, certificate tls.Certificate) (string, func()) {
 			t.Errorf("close listener: %v", err)
 		}
 		select {
-		case <-done:
+		case err := <-done:
+			// Negative tests intentionally reject certificates on the client.
+			if err != nil {
+				t.Logf("server handshake completed with: %v", err)
+			}
 		case <-time.After(time.Second):
 		}
 	}

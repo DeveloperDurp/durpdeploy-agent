@@ -103,7 +103,14 @@ func (e *Executor) runAttempt(
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if cleanupErr := os.RemoveAll(tmpDir); cleanupErr != nil {
+			// A completed deployment must not be replayed because its private
+			// script directory could not be removed. Block recovery and polling.
+			err = errors.Join(err, ErrHostProcessCleanup, ErrContainerCleanup,
+				fmt.Errorf("remove private script directory: %w", cleanupErr))
+		}
+	}()
 
 	scriptPath := tmpDir + "/script" + scriptExtension(job.interpreter)
 	if err := os.WriteFile(

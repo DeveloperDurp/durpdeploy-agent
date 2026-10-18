@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func zipFixture(t *testing.T, name string, mode os.FileMode) []byte {
+func zipFixture(t testing.TB, name string, mode os.FileMode) []byte {
 	t.Helper()
 	var buffer bytes.Buffer
 	writer := zip.NewWriter(&buffer)

@@ -18,12 +18,18 @@ make build
 make check
 ```
 
-CI publishes `ghcr.io/developerdurp/durpdeploy-agent` for `linux/amd64` and
+GitLab CI publishes `registry.durp.info/durfy/apps/durp-deploy-agent` for `linux/amd64` and
 `linux/arm64` after the tests and container contract pass. Pushes to `main`
 publish a development version, the short commit SHA, and `latest` as image tags.
 Pushes of valid semantic `v*` tags publish the normalized tag name and `latest`.
-Pull requests and other branches run checks
-without publishing images. Tagged releases also include standalone Linux binaries.
+Merge requests and other branches run checks
+without publishing application images. Tagged releases also include standalone Linux binaries.
+
+The Kubernetes CI runner uses amd64 jobs, Docker-in-Docker, and disposable
+systemd test containers for local Docker sockets and rootless Podman. ARM64
+images are built with QEMU emulation; ARM64 release binaries are cross-compiled.
+See [CI setup](docs/ci.md) for the runner requirements, Harbor proxies, and
+optional SonarCloud configuration.
 
 The executable reports its software version, commit-count build number, source
 commit, and source changes. Read [software versions and build numbers](docs/versioning.md)

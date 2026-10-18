@@ -1,0 +1,279 @@
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_TAG'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
+
+stages: [prepare, check, quality, publish, release]
+
+variables:
+  GIT_DEPTH: '0'
+  FF_GIT_URLS_WITHOUT_TOKENS: 'true'
+  # Retain provenance using the attestation format accepted by GitLab's registry.
+  BUILDX_NO_DEFAULT_OCI_ARTIFACT: '1'
+  DOCKER_HOST: tcp://127.0.0.1:2375
+  DOCKER_TLS_CERTDIR: ''
+  CI_TOOLS_IMAGE: '$CI_REGISTRY_IMAGE/ci:$CI_COMMIT_SHA'
+  SERVER_REPOSITORY: https://gitlab.durp.info/durfy/apps/durpdeploy.git
+  SERVER_COMMIT: 488a91151f1aa02b46a3a47f406aeb003476181c
+
+default:
+  image: harbor.durp.info/dockerhub/library/docker:29-cli
+  interruptible: true
+
+.docker:
+  services:
+    - name: harbor.durp.info/dockerhub/library/docker:29-dind
+      alias: docker
+      variables:
+        HEALTHCHECK_TCP_PORT: '2375'
+      command: ['--tls=false']
+  before_script:
+    - sh scripts/ci/docker-ready.sh
+    - printf '%s' "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+
+metadata:
+  stage: prepare
+  image: harbor.durp.info/dockerhub/library/golang:1.26.9-bookworm
+  script:
+    - mkdir -p .ci
+    - |
+      bash -c 'source scripts/build_metadata.sh
+      printf "BUILD_VERSION=%s\nBUILD_NUMBER=%s\nBUILD_COMMIT=%s\nBUILD_MODIFIED=%s\nIMAGE_VERSION=%s\n" \
+        "$BUILD_VERSION" "$BUILD_NUMBER" "$BUILD_COMMIT" "$BUILD_MODIFIED" "$IMAGE_VERSION" > .ci/build.env'
+  artifacts:
+    reports:
+      dotenv: .ci/build.env
+
+ci-tools:
+  extends: .docker
+  stage: prepare
+  script:
+    - docker build --file .gitlab/ci/Dockerfile --tag "$CI_TOOLS_IMAGE" .
+    - docker push "$CI_TOOLS_IMAGE"
+
+.check:
+  extends: .docker
+  stage: check
+  needs: [metadata, ci-tools]
+  timeout: 30m
+  cache:
+    key: go-1.26-$CI_COMMIT_REF_SLUG
+    paths: [.cache/go/, .cache/mod/]
+  artifacts:
+    when: always
+    paths: [.ci/*.log]
+    expire_in: 1 week
+
+.go-check:
+  stage: check
+  image: harbor.durp.info/dockerhub/library/golang:1.26.9-bookworm
+  needs: []
+  timeout: 10m
+  variables:
+    GOTOOLCHAIN: local
+    GOCACHE: '$CI_PROJECT_DIR/.cache/go'
+    GOMODCACHE: '$CI_PROJECT_DIR/.cache/mod'
+    GOLANGCI_LINT_CACHE: '$CI_PROJECT_DIR/.cache/golangci-lint'
+  cache:
+    key: go-analysis-$CI_COMMIT_REF_SLUG
+    paths: [.cache/go/, .cache/mod/, .cache/golangci-lint/]
+  artifacts:
+    when: always
+    paths: [.ci/*.log]
+    expire_in: 1 week
+
+lint:
+  extends: .go-check
+  image: harbor.durp.info/dockerhub/golangci/golangci-lint:v2.15.0
+  script:
+    - bash scripts/ci/go-check.sh lint
+
+vulnerability:
+  extends: .go-check
+  script:
+    - bash scripts/ci/go-check.sh vulnerability
+
+fuzz:
+  extends: .go-check
+  script:
+    - bash scripts/ci/go-check.sh fuzz
+  artifacts:
+    when: always
+    paths: [.ci/*.log, protocol/testdata/fuzz/, artifact/testdata/fuzz/, payload/testdata/fuzz/]
+    expire_in: 1 week
+
+shell-lint:
+  stage: check
+  image: harbor.durp.info/dockerhub/koalaman/shellcheck-alpine:v0.11.0
+  needs: []
+  script:
+    - sh scripts/ci/shell-check.sh
+  artifacts:
+    when: always
+    paths: [.ci/shell-lint.log]
+    expire_in: 1 week
+
+secrets:
+  stage: check
+  image:
+    name: harbor.durp.info/github/gitleaks/gitleaks:v8.30.1
+    entrypoint: ['']
+  needs: []
+  script:
+    - sh scripts/ci/secret-check.sh
+  artifacts:
+    when: always
+    paths: [.ci/secrets.log, .ci/secrets.json]
+    expire_in: 1 week
+
+test:
+  extends: .check
+  script:
+    - sh scripts/ci/run.sh test
+  artifacts:
+    when: always
+    paths: [.ci/*.log, .ci/junit/]
+    reports:
+      junit: .ci/junit/*.xml
+    expire_in: 1 week
+
+container-docker:
+  extends: .check
+  script:
+    - sh scripts/ci/run.sh docker
+
+container-podman:
+  extends: .check
+  script:
+    - sh scripts/ci/run.sh podman
+
+systemd-amd64:
+  extends: .check
+  script:
+    - sh scripts/ci/run.sh systemd
+
+image-amd64:
+  extends: .check
+  script:
+    - sh scripts/ci/run.sh image-amd64
+  artifacts:
+    when: always
+    paths: [.ci/*.log, .ci/agent-candidate/, .ci/image-verified.json]
+    expire_in: 1 day
+
+image-scan:
+  stage: quality
+  image:
+    name: harbor.durp.info/github/aquasecurity/trivy:0.76.0
+    entrypoint: ['']
+  needs: [image-amd64]
+  timeout: 15m
+  variables:
+    TRIVY_CACHE_DIR: '$CI_PROJECT_DIR/.cache/trivy'
+    TRIVY_DB_REPOSITORY: harbor.durp.info/github/aquasecurity/trivy-db:2
+  cache:
+    key: trivy-v1-$CI_COMMIT_REF_SLUG
+    paths: [.cache/trivy/]
+  script:
+    - sh scripts/ci/scan-image.sh
+  artifacts:
+    when: always
+    paths: [.ci/image-scan.log, .ci/image-scan.json, .ci/agent-sbom.cdx.json]
+    expire_in: 1 week
+
+version-e2e:
+  extends: .check
+  script:
+    - sh scripts/ci/run.sh version-e2e
+  artifacts:
+    when: always
+    paths: [.ci/*.log, .ci/agent-version-ui/]
+    expire_in: 1 week
+
+coverage:
+  extends: .check
+  coverage: '/^total:\s+\(statements\)\s+(\d+\.\d+)%$/'
+  script:
+    - sh scripts/ci/run.sh coverage
+  artifacts:
+    when: always
+    paths: [.ci/*.log, coverage.out, .ci/coverage-*.xml, .ci/junit/]
+    reports:
+      junit: .ci/junit/*.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: .ci/coverage-*-gitlab.xml
+    expire_in: 1 week
+
+sonarcloud:
+  stage: quality
+  image:
+    name: harbor.durp.info/dockerhub/sonarsource/sonar-scanner-cli:latest
+    entrypoint: ['']
+  needs: [coverage]
+  rules:
+    - if: '$SONAR_TOKEN && ($CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || ($CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID))'
+  variables:
+    SONAR_USER_HOME: '$CI_PROJECT_DIR/.cache/sonar'
+    SONAR_HOST_URL: https://sonarcloud.io
+  script:
+    - sonar-scanner -Dsonar.qualitygate.wait=true
+
+publish-image:
+  image: '$CI_TOOLS_IMAGE'
+  stage: publish
+  interruptible: false
+  resource_group: agent-image
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG =~ /^v/'
+  needs:
+    - metadata
+    - ci-tools
+    - lint
+    - vulnerability
+    - fuzz
+    - shell-lint
+    - secrets
+    - test
+    - coverage
+    - container-docker
+    - container-podman
+    - systemd-amd64
+    - image-amd64
+    - image-scan
+    - version-e2e
+    - job: sonarcloud
+      optional: true
+  script:
+    - sh scripts/ci/publish-image.sh
+
+release-build:
+  extends: .check
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v/'
+  script:
+    - sh scripts/ci/run.sh release
+  artifacts:
+    paths: [dist/]
+    expire_in: never
+
+release:
+  stage: release
+  image:
+    name: harbor.durp.info/gitlab/gitlab-org/cli:latest
+    entrypoint: ['']
+  interruptible: false
+  variables:
+    GLAB_ENABLE_CI_AUTOLOGIN: 'true'
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v/'
+  needs: [publish-image, release-build]
+  script:
+    - |
+      glab release create "$CI_COMMIT_TAG" dist/durpdeploy-agent-linux-amd64 dist/durpdeploy-agent-linux-arm64 \
+        --repo "$CI_PROJECT_URL" --ref "$CI_COMMIT_SHA" \
+        --name "$CI_COMMIT_TAG" --notes "DurpDeploy Agent $CI_COMMIT_TAG" \
+        --use-package-registry

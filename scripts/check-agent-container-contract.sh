@@ -3,8 +3,10 @@ set -euo pipefail
 
 root=${AGENT_CONTAINER_CONTRACT_ROOT:-.}
 image=${AGENT_CONTAINER_IMAGE:-localhost/durpdeploy-agent:contract}
+runtime=${AGENT_CONTAINER_CONTRACT_RUNTIME:-podman}
+case "$runtime" in docker|podman) ;; *) echo 'unsupported contract runtime' >&2; exit 1 ;; esac
 state_volume="durpdeploy-agent-contract-state-$$"
-trap 'podman volume rm -f "$state_volume" >/dev/null 2>&1 || true' EXIT
+trap '"$runtime" volume rm -f "$state_volume" >/dev/null 2>&1 || true' EXIT
 
 require_file() {
 	if [ ! -f "$root/$1" ]; then
@@ -163,43 +165,51 @@ if ! grep -Fq -- \
 fi
 
 source "$root/scripts/build_metadata.sh"
-podman build --build-arg BUILD_VERSION="$BUILD_VERSION" \
-	--build-arg BUILD_COMMIT="$BUILD_COMMIT" \
-	--build-arg BUILD_NUMBER="$BUILD_NUMBER" \
-	--build-arg BUILD_MODIFIED="$BUILD_MODIFIED" \
-	-f "$root/Dockerfile" -t "$image" "$root"
+case "${AGENT_CONTAINER_CONTRACT_PREBUILT:-false}" in
+  false)
+    "$runtime" build --build-arg BUILD_VERSION="$BUILD_VERSION" \
+      --build-arg BUILD_COMMIT="$BUILD_COMMIT" \
+      --build-arg BUILD_NUMBER="$BUILD_NUMBER" \
+      --build-arg BUILD_MODIFIED="$BUILD_MODIFIED" \
+      -f "$root/Dockerfile" -t "$image" "$root"
+    ;;
+  true) "$runtime" image inspect "$image" > /dev/null ;;
+  *) echo 'invalid prebuilt contract setting' >&2; exit 1 ;;
+esac
 
 for label in "org.opencontainers.image.version=$BUILD_VERSION" \
 	"org.opencontainers.image.revision=$BUILD_COMMIT" \
 	"info.durpdeploy.build-number=$BUILD_NUMBER"; do
 	key=${label%%=*}
-	[[ $(podman image inspect --format "{{ index .Config.Labels \"$key\" }}" "$image") == "${label#*=}" ]]
+	[[ $("$runtime" image inspect --format "{{ index .Config.Labels \"$key\" }}" "$image") == "${label#*=}" ]]
 done
 identity="durpdeploy-agent $BUILD_VERSION (build $BUILD_NUMBER, commit $BUILD_COMMIT"
 [[ "$BUILD_MODIFIED" == false ]] || identity+=', modified'
 identity+=')'
 for argument in version --version -v; do
-	output=$(podman run --rm --read-only --network none \
+	output=$("$runtime" run --rm --read-only --network none \
 		--security-opt no-new-privileges:true --cap-drop ALL \
 		--env DURPDEPLOY_AGENT_CONTAINER_ENABLED=invalid "$image" "$argument")
 	[[ "$output" == "$identity" ]]
 done
 
-if [ "$(podman image inspect --format '{{.Config.User}}' "$image")" != 10001 ]; then
+if [ "$("$runtime" image inspect --format '{{.Config.User}}' "$image")" != 10001 ]; then
 	echo 'agent container contract: image user is not the service identity' >&2
 	exit 1
 fi
-if [ "$(podman image inspect --format '{{json .Config.ExposedPorts}}' "$image")" != null ]; then
+if [ "$("$runtime" image inspect --format '{{json .Config.ExposedPorts}}' "$image")" != null ]; then
 	echo 'agent container contract: image must not expose a port' >&2
 	exit 1
 fi
-if podman image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$image" | \
+if "$runtime" image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$image" | \
 	grep -Eq '^DURPDEPLOY_(SECRET_KEY|DB)='; then
 	echo 'agent container contract: image includes server storage or secret configuration' >&2
 	exit 1
 fi
 
-podman run --rm --read-only --security-opt no-new-privileges:true \
+# The quoted script executes inside the image; its variables must expand there.
+# shellcheck disable=SC2016
+"$runtime" run --rm --read-only --security-opt no-new-privileges:true \
 	--cap-drop ALL \
 	--memory 512m --cpus 1.0 --pids-limit 128 \
 	--tmpfs /tmp:size=64m,mode=1777 \
@@ -241,7 +251,7 @@ EOF
 	/bin/bash /tmp/runner-probe.sh
 '
 
-help=$(podman run --rm --read-only \
+help=$("$runtime" run --rm --read-only \
 	--security-opt no-new-privileges:true \
 	--cap-drop ALL \
 	--tmpfs /tmp:size=64m,mode=1777 \

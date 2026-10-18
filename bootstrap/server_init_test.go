@@ -160,7 +160,11 @@ func TestBootstrap_GetDoesNotRevealPairingCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET bootstrap: %v", err)
 	}
-	defer response.Body.Close()
+	t.Cleanup(func() {
+		if err := response.Body.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 
 	// Then
 	if response.StatusCode != http.StatusNotFound {
@@ -206,7 +210,11 @@ func TestBootstrap_RejectsUnauthenticatedServerInit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("post unauthenticated server-init: %v", err)
 	}
-	defer response.Body.Close()
+	t.Cleanup(func() {
+		if err := response.Body.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 
 	// Then
 	if response.StatusCode != http.StatusUnauthorized {
@@ -384,6 +392,10 @@ func postServerInit(
 	if err != nil {
 		t.Fatalf("post server-init: %v", err)
 	}
-	defer response.Body.Close()
+	t.Cleanup(func() {
+		if err := response.Body.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	return response.StatusCode
 }

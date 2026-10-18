@@ -1,6 +1,9 @@
 # Git
 .git
 .gitignore
+.cache
+.ci
+dist
 
 # IDE
 .vscode

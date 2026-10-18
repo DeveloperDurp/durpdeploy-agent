@@ -24,7 +24,11 @@ func TestRecoveredStagingRootOwnership(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer root.Close()
+			t.Cleanup(func() {
+				if err := root.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+					t.Error(err)
+				}
+			})
 			if err := os.WriteFile(
 				filepath.Join(original, "data"),
 				[]byte("owned"),
@@ -130,7 +134,11 @@ func TestPreRecordedStagingMoveBlocksRecoveryUntilRestored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	t.Cleanup(func() {
+		if err := root.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			t.Error(err)
+		}
+	})
 	record, err := captureStagingRoot(root)
 	if err != nil || record == nil {
 		t.Fatalf("missing pre-launch identity: %v %v", record, err)
