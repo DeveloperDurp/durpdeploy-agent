@@ -10,6 +10,7 @@ fi
 expected=$(python3 scripts/ci/image-artifact.py verify-proof)
 auth=$(mktemp)
 trap 'rm -f "$auth"' EXIT
+printf '{}\n' > "$auth"
 printf '%s' "${CI_REGISTRY_PASSWORD:?}" | skopeo login --authfile "$auth" \
   --username "${CI_REGISTRY_USER:?}" --password-stdin "${CI_REGISTRY:?}"
 set -- "${CI_REGISTRY_IMAGE:?}:${IMAGE_VERSION:?}" "$CI_REGISTRY_IMAGE:latest"

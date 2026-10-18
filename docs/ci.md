@@ -1,9 +1,12 @@
 # GitLab CI
 
-The pipeline lives in `.gitlab-ci.yml`. Branch and merge request pipelines run
+The pipeline lives in `.gitlab-ci.yml`. Pipelines for merge requests, the default
+branch, and tags run
 the Go checks, Docker and rootless Podman execution contracts, the agent image
 contract, and the pinned DurpDeploy server API and Chromium fleet UI contracts.
-An open merge request suppresses duplicate branch push pipelines. Checkout
+Feature branches start CI when a merge request is opened; their pushes do not
+create separate branch pipelines, including the first push before an MR exists.
+Checkout
 credentials are kept out of Git URLs and the mounted test checkout. Full history
 preserves the commit-count build number. The server fixture stays pinned to
 `488a91151f1aa02b46a3a47f406aeb003476181c` in the migrated GitLab repository.
