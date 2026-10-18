@@ -25,6 +25,7 @@ func persistHostStagingCleanup(
 	sealed, err := client.SealTerminalReport(claim.DeploymentID,
 		agentproto.ResultRequest{
 			ClaimToken: claim.ClaimToken, State: agentproto.ResultFailed,
+			Error: interruptedExecutionDiagnostic,
 		})
 	if err != nil {
 		return err

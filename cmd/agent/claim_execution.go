@@ -205,7 +205,7 @@ func executeClaim(
 	cancel()
 	<-heartbeatDone
 	if flushErr := logs.Flush(ctx); flushErr != nil && err == nil {
-		err = flushErr
+		err = errors.Join(runner.ErrLogDelivery, flushErr)
 	}
 	cancelMu.Lock()
 	wasCancelled := cancelled || errors.Is(err, runner.ErrCancelled) ||
@@ -279,6 +279,7 @@ func executeClaim(
 		claim,
 		agentproto.ResultRequest{
 			ClaimToken: claim.ClaimToken, State: result,
+			Error: resultDiagnostic(err),
 		},
 	); persistErr != nil {
 		return errors.Join(err, persistErr)

@@ -87,10 +87,13 @@ func TestTerminalDelivery_replays_actual_result_after_outage_without_execution(
 				select {
 				case result := <-fixture.result:
 					want := agentproto.ResultSucceeded
+					wantError := ""
 					if fail {
 						want = agentproto.ResultFailed
+						wantError = executionFailureDiagnostic
 					}
 					if result.State != want ||
+						result.Error != wantError ||
 						result.Protocol != agentproto.AgentV3 ||
 						result.ClaimToken != claim.ClaimToken {
 						t.Fatalf("replayed result: %+v", result)

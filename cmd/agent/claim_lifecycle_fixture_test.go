@@ -52,6 +52,9 @@ run)
  printf 'run\n' >> "$fixture/ran"
  touch "$fixture/owned"
  printf 'ready\n'
+ if [[ -e "$fixture/run-output" ]]; then
+  for ((i=0; i<100; i++)); do printf 'output\n'; done
+ fi
  if [[ -e "$fixture/run-cancel" ]]; then
   for ((i=0; i<100; i++)); do printf 'output\n'; done
   exec /usr/bin/sleep 30

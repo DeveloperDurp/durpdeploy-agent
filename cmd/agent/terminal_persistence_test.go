@@ -72,10 +72,12 @@ func TestClaimLifecycle_normal_results_replace_cleanup_report_before_delivery(
 				}
 				// Then
 				want := agentproto.ResultSucceeded
+				wantError := ""
 				if fail {
 					want = agentproto.ResultFailed
+					wantError = executionFailureDiagnostic
 				}
-				if result := <-fixture.result; result.State != want {
+				if result := <-fixture.result; result.State != want || result.Error != wantError {
 					t.Fatalf("result: %+v", result)
 				}
 			},

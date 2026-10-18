@@ -313,7 +313,7 @@ func TestContainer_timeout_removes_the_attempt(t *testing.T) {
 				runner,
 			).Execute(context.Background(), job, Callbacks{})
 			// Then
-			if !errors.Is(err, context.DeadlineExceeded) {
+			if !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, ErrStepTimeout) {
 				t.Fatalf("timeout: %v", err)
 			}
 			if _, err := os.Stat(

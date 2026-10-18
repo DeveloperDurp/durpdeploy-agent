@@ -106,6 +106,28 @@ requests may use `agent/1`, `agent/2`, or `agent/3` during rollout.
 | `POST /agent/v1/deployments/{id}/result` | `ResultRequest` | Result state is only `succeeded` or `failed`. |
 | `POST /agent/v1/deployments/{id}/cancelled` | `CancelledRequest` | Cancellation acknowledgement is distinct from a normal result. |
 
+`ResultRequest.error` remains a string in every protocol version; no structured
+fields or protocol negotiation are added. New ordinary failed results use
+`<reason_code>: <safe message>`, with a maximum of 256 UTF-8 bytes:
+
+- `execution_failed`: execution or deployment preparation/publication failed.
+- `step_timeout`: a step exceeded its time limit, including container image preparation.
+- `log_delivery_failed`: streaming logs or the final log flush could not be delivered.
+- `execution_interrupted`: host staging recovery retained an interrupted deployment.
+
+Messages come from a fixed catalogue. They never interpolate downstream error
+strings, variable names or values, credentials, claim tokens, step names, or raw
+script output. Successful results send `error: ""`. An execution failure retains
+its diagnostic if the subsequent final log flush also fails. Log delivery errors
+from inside execution take precedence over step timeout classification.
+
+The agent seals the complete terminal result before delivery. An unavailable
+result endpoint or restart replays that saved state and diagnostic without
+executing the deployment again. Cancellation still uses `CancelledRequest`.
+Existing cleanup and claim-state persistence failures retain their fixed operator
+messages. Older saved reports and other clients may use empty or free-form error
+strings; servers must continue accepting the existing string contract.
+
 The endpoint route, active mTLS identity, and later persistence checks bind a
 claim to one agent. This contract deliberately does not document credential
 material, certificate bodies, or secret values.

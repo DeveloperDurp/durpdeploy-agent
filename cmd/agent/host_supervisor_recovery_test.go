@@ -105,8 +105,8 @@ func testHostSupervisorFailureRecovery(t *testing.T, root string) {
 	go func() { done <- run(restartCtx, configuration) }()
 	select {
 	case result := <-fixture.result:
-		if result.State != agentproto.ResultFailed {
-			t.Errorf("restart replayed result %s", result.State)
+		if result.State != agentproto.ResultFailed || result.Error != interruptedExecutionDiagnostic {
+			t.Errorf("restart replayed result state=%s error=%q", result.State, result.Error)
 		}
 	case <-time.After(5 * time.Second):
 		stop()

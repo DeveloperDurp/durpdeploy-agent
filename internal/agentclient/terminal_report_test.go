@@ -46,7 +46,8 @@ func TestTerminalReport_preserves_protocol_and_lifecycle_endpoint(
 								)
 								if err != nil || request.Protocol != version ||
 									request.ClaimToken != "claim-secret" ||
-									request.State != agentproto.ResultSucceeded ||
+									request.State != agentproto.ResultFailed ||
+									request.Error != "execution_failed: Deployment execution failed." ||
 									r.URL.Path != "/agent/v1/deployments/42/result" {
 									t.Errorf(
 										"result replay: %+v, %v, %s",
@@ -65,7 +66,10 @@ func TestTerminalReport_preserves_protocol_and_lifecycle_endpoint(
 						identity.Fingerprint.String(),
 					)
 					client.protocol = version
-					var request agentproto.Request = agentproto.ResultRequest{ClaimToken: "claim-secret", State: agentproto.ResultSucceeded}
+					var request agentproto.Request = agentproto.ResultRequest{
+						ClaimToken: "claim-secret", State: agentproto.ResultFailed,
+						Error: "execution_failed: Deployment execution failed.",
+					}
 					if cancelled {
 						request = agentproto.CancelledRequest{
 							ClaimToken: "claim-secret",

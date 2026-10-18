@@ -18,6 +18,9 @@ const (
 
 var ErrCancelled = errors.New("step execution cancelled")
 
+// ErrStepTimeout identifies an expired step deadline, including image preparation.
+var ErrStepTimeout = errors.New("step execution timed out")
+
 func baseStepEnv() []string {
 	environment := []string{
 		"PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin",
@@ -79,6 +82,14 @@ func NewExecutor() *Executor {
 		boundaryValidated: true,
 		sandboxErr:        validateExecutionBoundary(),
 	}
+}
+
+func stepContextError(ctx context.Context) error {
+	err := ctx.Err()
+	if errors.Is(err, context.DeadlineExceeded) {
+		return errors.Join(ErrStepTimeout, err)
+	}
+	return err
 }
 
 func (e *Executor) runAttempt(
@@ -158,7 +169,7 @@ func (e *Executor) runAttempt(
 		return err
 	}
 	if err := cmd.Start(); err != nil {
-		return errors.Join(err, writer.flush())
+		return errors.Join(err, stepContextError(stepCtx), writer.flush())
 	}
 	pgid := cmd.Process.Pid
 	if callbacks.trackProcessGroup != nil {
@@ -168,6 +179,9 @@ func (e *Executor) runAttempt(
 		}
 	}
 	err = cmd.Wait()
+	if err != nil && stepCtx.Err() == context.DeadlineExceeded {
+		err = errors.Join(err, stepContextError(stepCtx))
+	}
 	if supervision != nil {
 		if cleanupErr := supervision.confirm(); cleanupErr != nil {
 			return errors.Join(err, cleanupErr)

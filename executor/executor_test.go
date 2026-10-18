@@ -163,8 +163,8 @@ func TestExecutor_ReturnsTimeout_when_step_exceeds_deadline(t *testing.T) {
 	)
 
 	// Then
-	if err == nil {
-		t.Fatal("execute succeeded, want timeout")
+	if !errors.Is(err, ErrStepTimeout) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("execute error = %v, want step timeout and deadline", err)
 	}
 }
 

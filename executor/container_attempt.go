@@ -40,7 +40,7 @@ func (r *ContainerExecutor) runAttempt(
 	writer.cancel = cancel
 	if err := r.requirePIDLimit(stepCtx); err != nil {
 		if stepCtx.Err() != nil {
-			return stepCtx.Err()
+			return stepContextError(stepCtx)
 		}
 		return err
 	}
@@ -49,7 +49,7 @@ func (r *ContainerExecutor) runAttempt(
 		*imageID, err = r.prepareImage(stepCtx, job.containerImage)
 		if err != nil {
 			if stepCtx.Err() != nil {
-				return stepCtx.Err()
+				return stepContextError(stepCtx)
 			}
 			return err
 		}
@@ -147,7 +147,7 @@ func (r *ContainerExecutor) runAttempt(
 		return err
 	}
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start container client: %w", err)
+		return fmt.Errorf("start container client: %w", errors.Join(err, stepContextError(stepCtx)))
 	}
 	if callbacks.trackProcessGroup != nil {
 		callbacks.trackProcessGroup(cmd.Process.Pid)
@@ -162,7 +162,7 @@ func (r *ContainerExecutor) runAttempt(
 	// A killed client does not prove a killed container; removal always runs above.
 	if err != nil {
 		if stepCtx.Err() != nil {
-			return fmt.Errorf("container step interrupted: %w", stepCtx.Err())
+			return fmt.Errorf("container step interrupted: %w", stepContextError(stepCtx))
 		}
 		if writeErr := writer.write(
 			fmt.Sprintf(
