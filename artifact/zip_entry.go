@@ -11,7 +11,15 @@ import (
 const maxZIPPathBytes = 4000
 const maxZIPComponentBytes = 255
 
-func validateZIPEntry(entry *zip.File, kinds map[string]bool) error {
+type zipNodeKind uint8
+
+const (
+	zipImplicitDirectory zipNodeKind = iota
+	zipDirectory
+	zipFile
+)
+
+func validateZIPEntry(entry *zip.File, kinds map[string]zipNodeKind) error {
 	name, err := zipEntryName(entry.Name)
 	if err != nil {
 		return err
@@ -20,19 +28,25 @@ func validateZIPEntry(entry *zip.File, kinds map[string]bool) error {
 	if !mode.IsRegular() && !mode.IsDir() {
 		return ErrInvalid
 	}
-	if directoryEntry, exists := kinds[name]; exists &&
-		(!directoryEntry || !mode.IsDir()) {
+	if kind, exists := kinds[name]; exists &&
+		(kind != zipImplicitDirectory || !mode.IsDir()) {
 		return ErrInvalid
 	}
-	kinds[name] = mode.IsDir()
+	kinds[name] = zipFile
+	if mode.IsDir() {
+		kinds[name] = zipDirectory
+	}
 	if len(kinds) > MaxStagingNodes {
 		return ErrInvalid
 	}
 	for parent := path.Dir(name); parent != "."; parent = path.Dir(parent) {
-		if directoryEntry, exists := kinds[parent]; exists && !directoryEntry {
-			return ErrInvalid
+		if kind, exists := kinds[parent]; exists {
+			if kind == zipFile {
+				return ErrInvalid
+			}
+		} else {
+			kinds[parent] = zipImplicitDirectory
 		}
-		kinds[parent] = true
 		if len(kinds) > MaxStagingNodes {
 			return ErrInvalid
 		}

@@ -50,7 +50,7 @@ func processZIP(ctx context.Context, filename, directory string) (err error) {
 	if len(archive.File) == 0 || len(archive.File) > MaxFiles {
 		return ErrInvalid
 	}
-	kinds := make(map[string]bool, len(archive.File))
+	kinds := make(map[string]zipNodeKind, len(archive.File))
 	var total int64
 	for _, entry := range archive.File {
 		if err := ctx.Err(); err != nil {

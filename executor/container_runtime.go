@@ -46,7 +46,7 @@ type ContainerExecutor struct {
 	clientHome string
 	mu         sync.Mutex
 	cleanupErr error
-	stages     map[string]bool
+	stages     map[string]stageAccess
 }
 
 func NewContainerExecutor(

@@ -26,6 +26,7 @@ func stagingContainerFixture(
 	volume := `volume)
  printf 'volume %s\n' "$*" >> "$fixture/actions"
  if [[ -e "$fixture/volume-$1-fail" ]]; then exit 1; fi
+ if [[ "$1" == rm && -e "$fixture/volume-rm-retain" ]]; then exit 0; fi
  case "$1" in
  create)
   printf '%s' "${@: -1}" > "$fixture/volume"
@@ -34,6 +35,7 @@ func stagingContainerFixture(
  rm) /usr/bin/rm -f "$fixture/volume" ;;
  esac ;;`
 	execute := `exec)
+ printf 'import-export\n' >> "$fixture/actions"
  if [[ -e "$fixture/exec-fail" ]]; then exit 1; fi
  while [[ "$1" != tar ]]; do shift; done
  shift
@@ -43,6 +45,24 @@ func stagingContainerFixture(
 *) exit 2 ;;`
 	updated := strings.Replace(string(script), "volume) ;;", volume, 1)
 	updated = strings.Replace(updated, "*) exit 2 ;;", execute, 1)
+	updated = strings.Replace(updated, `[[ ! -e "$fixture/owned" ]] || printf '%s\n' owned`, `
+ for file in "$fixture"/containers/*; do
+  [[ -e "$file" ]] || continue
+  name=${file##*/}
+  filter=${*: -1}
+  if [[ "$filter" != --filter=name=* || "$name" == "${filter#--filter=name=}" ]]; then printf '%s\n' "$name"; fi
+ done`, 1)
+	updated = strings.Replace(updated, `printf 'run\n' >> "$fixture/actions"`, `
+ name=''
+ for arg in "$@"; do [[ "$arg" != --name=* ]] || name=${arg#--name=}; done
+ mkdir -p "$fixture/containers"
+ touch "$fixture/containers/$name"
+ printf 'run-name %s\n' "$name" >> "$fixture/actions"
+ if [[ -e "$fixture/seal-fail" && "$*" == *:/stage:ro,nocopy* ]]; then exit 1; fi
+ printf 'run\n' >> "$fixture/actions"`, 1)
+	updated = strings.Replace(updated, `printf 'remove\n' >> "$fixture/actions"`, `printf 'remove-name %s\n' "${@: -1}" >> "$fixture/actions"
+ printf 'remove\n' >> "$fixture/actions"`, 1)
+	updated = strings.Replace(updated, `/usr/bin/rm -f "$fixture/owned" ;;`, `/usr/bin/rm -f "$fixture/owned" "$fixture/containers/${@: -1}" ;;`, 1)
 	if err := os.WriteFile(binary, []byte(updated), 0755); err != nil {
 		t.Fatal(err)
 	}

@@ -2,13 +2,31 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/DeveloperDurp/durpdeploy-agent/artifact"
 	"github.com/DeveloperDurp/durpdeploy-agent/internal/staging"
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
+
+func TestCorruptPackageFixtureRetainsValidZIP(t *testing.T) {
+	fixture := newClaimPackageFixture(t, "corrupt-bytes")
+	data := fixture.packageBytes()
+	if int64(len(data)) != fixture.pin.Size || fmt.Sprintf("%x", sha256.Sum256(data)) == fixture.pin.SHA256 {
+		t.Fatal("corrupt response must preserve size but change the pinned hash")
+	}
+	filename := filepath.Join(t.TempDir(), "changed.zip")
+	if err := os.WriteFile(filename, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := artifact.ValidateZIP(t.Context(), filename); err != nil {
+		t.Fatalf("checksum fixture can be rejected by ZIP validation instead: %v", err)
+	}
+}
 
 func TestClaimPackageBecomesWritableStagingOutput(t *testing.T) {
 	for _, scenario := range []string{"success", "moved-package", "invalid-zip", "changed-pin"} {

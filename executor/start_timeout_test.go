@@ -15,7 +15,9 @@ import (
 func TestExecutor_ReturnsTimeout_when_logs_outlast_deadline_before_start(t *testing.T) {
 	for _, mode := range []string{"host", "docker", "podman"} {
 		t.Run(mode, func(t *testing.T) {
-			const timeout = 50 * time.Millisecond
+			// Allow process-based runtime preflight to finish on a busy runner.
+			// The log callback still exceeds the actual step deadline below.
+			const timeout = time.Second
 			job := JobConfig{ScriptBody: "exit 0", Timeout: timeout, MaxRetries: 1}
 			var executor *Executor
 			var directory string

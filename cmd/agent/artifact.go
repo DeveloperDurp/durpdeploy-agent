@@ -53,7 +53,7 @@ func (s *jobStaging) configureArtifact(
 	if _, err := archive.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	s.artifactContainer, err = client.ContainerExecutor().NewStage(ctx, archive)
+	s.artifactContainer, err = client.ContainerExecutor().NewArtifactStage(ctx, archive)
 	return err
 }
 

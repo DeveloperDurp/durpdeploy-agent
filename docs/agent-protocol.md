@@ -29,11 +29,21 @@ Authenticated package HTTP transfers pause the server's remote step timeout.
 Package jobs receive `ARTIFACT_PATH`, including jobs with variable selections.
 Host jobs use a private package directory with read-only file permissions.
 Container jobs mount the package read-only at `/artifacts` with noexec enabled.
+The runtime imports each package into its own bounded tmpfs volume. A read-only
+keeper retains the contents before the writable importer is removed and its
+absence confirmed. Artifact volumes cannot be used as writable staging.
+The same verified package is reused across a claimed step's retries. A later
+claimed step downloads and verifies its own copy, potentially on another agent.
+`noexec` blocks direct execution from the mount; interpreters may still read
+scripts there, and a step can execute copies on another filesystem that allows it.
 Copy package files into `DURPDEPLOY_STAGE_DIR` to publish changed outputs.
 The original package directory stays outside writable staging.
 
 The agent purges managed package files and volumes before reporting completion.
 Unconfirmed cleanup blocks polling through the existing recovery contract.
+Startup reconciliation removes orphaned importers, keepers, and volumes before
+polling. Host package permissions remain part of the trusted operator boundary;
+they are not read-only/noexec mounts and the file owner can change them.
 
 Deployment staging uses the optional `X-DurpDeploy-Staging: staging/1` poll capability.
 The encrypted release object contains `staging: true` when the job requires staging transfer.

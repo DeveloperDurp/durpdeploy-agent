@@ -20,16 +20,17 @@ import (
 )
 
 type claimPackageFixture struct {
-	process  *agentSubprocessFixture
-	client   *agentclient.Client
-	scenario string
-	moved    string
-	archive  []byte
-	input    []byte
-	pin      *artifact.Pin
-	started  atomic.Bool
-	mu       sync.Mutex
-	output   []byte
+	process   *agentSubprocessFixture
+	client    *agentclient.Client
+	scenario  string
+	moved     string
+	archive   []byte
+	input     []byte
+	pin       *artifact.Pin
+	started   atomic.Bool
+	downloads atomic.Int64
+	mu        sync.Mutex
+	output    []byte
 }
 
 func newClaimPackageFixture(t *testing.T, scenario string) *claimPackageFixture {
@@ -96,6 +97,7 @@ func (f *claimPackageFixture) handle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *claimPackageFixture) sendPackage(w http.ResponseWriter) {
+	f.downloads.Add(1)
 	if !f.started.Load() {
 		f.process.t.Error("package requested before claim start")
 	}
@@ -104,9 +106,20 @@ func (f *claimPackageFixture) sendPackage(w http.ResponseWriter) {
 	if f.scenario == "changed-pin" {
 		w.Header().Set("X-Artifact-SHA256", "incorrect")
 	}
-	if _, err := w.Write(f.archive); err != nil {
+	if _, err := w.Write(f.packageBytes()); err != nil {
 		f.process.t.Error(err)
 	}
+}
+
+func (f *claimPackageFixture) packageBytes() []byte {
+	if f.scenario == "corrupt-bytes" {
+		data := bytes.Clone(f.archive)
+		// Change only the unused local-header timestamp. Contents and CRCs
+		// remain valid, so ZIP validation cannot mask a missing hash check.
+		data[10] ^= 1
+		return data
+	}
+	return f.archive
 }
 
 func (f *claimPackageFixture) receiveOutput(w http.ResponseWriter, r *http.Request) {

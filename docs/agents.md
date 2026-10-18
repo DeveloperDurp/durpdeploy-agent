@@ -497,9 +497,17 @@ Preserve the paired state directory when upgrading the agent.
 Read the attached release package through `ARTIFACT_PATH`.
 Copy files into `DURPDEPLOY_STAGE_DIR` before modifying them for later jobs.
 Each job downloads and verifies the same pinned package.
+Retries within a job reuse its existing verified contents; separate claimed
+steps do not share an agent-side package cache.
 
 Host jobs use read-only file permissions within the trusted operator boundary.
 Container jobs use a separate read-only, noexec package mount.
+Its writable importer is removed before steps start, and the package cannot be
+mounted as writable staging. `noexec` blocks direct execution from that mount;
+it does not prevent interpreter reads or execution of a copy on another
+filesystem that allows it.
+Host permissions can be changed by the trusted file owner and do not provide
+the container mount guarantee.
 Managed package files follow the staging cleanup and recovery rules.
 This feature adds no per-job cgroup or delegation requirement.
 
