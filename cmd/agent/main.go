@@ -96,16 +96,20 @@ func writeAgentDiagnostic(arguments []string, output io.Writer) bool {
 	if len(arguments) != 1 {
 		return false
 	}
+	var err error
 	switch arguments[0] {
 	case "help", "--help", "-h":
-		fmt.Fprint(output, agentHelp())
+		_, err = fmt.Fprint(output, agentHelp())
 	case "version", "--version", "-v":
-		fmt.Fprintln(output, "durpdeploy-agent "+buildinfo.Current().String())
-		if override := os.Getenv("DURPDEPLOY_AGENT_VERSION"); override != "" {
-			fmt.Fprintf(output, "Reported agent version override: %q\n", override)
+		_, err = fmt.Fprintln(output, "durpdeploy-agent "+buildinfo.Current().String())
+		if override := os.Getenv("DURPDEPLOY_AGENT_VERSION"); override != "" && err == nil {
+			_, err = fmt.Fprintf(output, "Reported agent version override: %q\n", override)
 		}
 	default:
 		return false
+	}
+	if err != nil {
+		slog.Error("write agent diagnostic", "err", err)
 	}
 	return true
 }

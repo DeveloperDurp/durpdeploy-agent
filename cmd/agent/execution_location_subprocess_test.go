@@ -19,7 +19,9 @@ func TestAgentSubprocess_completesOrderedStepsAndRedactsSecrets(t *testing.T) {
 
 	// When
 	result := <-fixture.result
-	process.Process.Signal(syscall.SIGTERM)
+	if err := process.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
 	if err := process.Wait(); err != nil {
 		t.Fatalf("wait agent: %v", err)
 	}

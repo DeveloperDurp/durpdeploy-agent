@@ -47,8 +47,19 @@ func TestAgentSubprocess_sigtermKillsSpawnedChild(t *testing.T) {
 	}
 
 	// Then
-	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
-		t.Fatalf("child PID %d remains after agent SIGTERM: %v", pid, err)
+	// Killing the process group leaves orphan reaping to init. Its SIGCHLD
+	// handler can run just after the agent exits, especially in a busy CI pod.
+	// Still require ESRCH; a live child or an unreaped zombie fails the check.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err := syscall.Kill(pid, 0)
+		if errors.Is(err, syscall.ESRCH) {
+			break
+		}
+		if err != nil || time.Now().After(deadline) {
+			t.Fatalf("child PID %d remains after agent SIGTERM: %v", pid, err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -82,7 +93,9 @@ func TestAgentSubprocess_sigterm_unblocks_retrying_log_upload(t *testing.T) {
 		if err := process.Process.Kill(); err != nil {
 			t.Error(err)
 		}
-		<-done
+		if err := <-done; err != nil {
+			t.Logf("forced agent exit: %v", err)
+		}
 		t.Fatal("cancelled agent remained blocked in log upload")
 	}
 }
@@ -99,7 +112,7 @@ func TestAgentSubprocess_pollsAgainAfterStaleStart(t *testing.T) {
 	select {
 	case <-fixture.pollAgain:
 	case <-time.After(5 * time.Second):
-		process.Process.Signal(syscall.SIGTERM)
+		_ = process.Process.Signal(syscall.SIGTERM) // Best-effort cleanup before fatal failure.
 		_ = process.Wait()
 		t.Fatal("agent did not poll again after stale start")
 	}

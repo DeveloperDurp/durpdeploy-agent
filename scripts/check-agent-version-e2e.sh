@@ -15,6 +15,7 @@ fi
 trap 'rm -f "$fixture" "$browser_fixture"; rm -rf "$directory"' EXIT
 cd "$root"
 unset GITHUB_REF_TYPE GITHUB_REF_NAME
+unset CI_COMMIT_TAG GITLAB_CI
 commit=$(git rev-parse HEAD)
 number=$(git rev-list --count HEAD)
 BUILD_COMMIT=$commit BUILD_NUMBER=$number BUILD_MODIFIED=false BUILD_VERSION=v1.2.3+build.4 \

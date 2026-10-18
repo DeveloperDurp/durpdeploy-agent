@@ -1,7 +1,7 @@
 # Copy this file to compose.yml and create compose.agent.env before starting.
 services:
   agent:
-    image: ghcr.io/developerdurp/durpdeploy-agent:latest
+    image: registry.durp.info/durfy/apps/durp-deploy-agent:latest
     restart: unless-stopped
     user: "10001:10001"
     env_file:

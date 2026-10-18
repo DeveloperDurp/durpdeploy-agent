@@ -25,6 +25,8 @@ require_text docs/agent-protocol.md 'does not fall back to local execution' \
 	'remote dispatch fallback is not explicit'
 require_text docs/agent-protocol.md 'server-init' \
 	'server-init pairing channel is missing'
+# Match the documentation's literal backticks.
+# shellcheck disable=SC2016
 require_text docs/agents.md 'does not use `chroot`' \
 	'chroot-free execution boundary is not documented'
 require_text docs/agents.md 'operator is responsible' \

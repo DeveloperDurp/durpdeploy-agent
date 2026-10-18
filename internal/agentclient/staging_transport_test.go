@@ -24,7 +24,9 @@ func TestStagingTransportKeepsProgressAndCancelsStalledBodies(t *testing.T) {
 							w.(http.Flusher).Flush()
 							if stalled {
 								<-r.Context().Done()
-								return
+								// Returning could finish the chunked response before
+								// the client observes cancellation. Keep it aborted.
+								panic(http.ErrAbortHandler)
 							}
 							select {
 							case <-time.After(40 * time.Millisecond):
@@ -57,7 +59,11 @@ func TestStagingTransportKeepsProgressAndCancelsStalledBodies(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer response.Body.Close()
+				t.Cleanup(func() {
+					if err := response.Body.Close(); err != nil {
+						t.Error(err)
+					}
+				})
 				data, err := io.ReadAll(response.Body)
 				// Then
 				if stalled && err == nil {

@@ -88,7 +88,7 @@ func processEntry(
 		return 0, ErrInvalid
 	}
 	defer func() { err = errors.Join(err, reader.Close()) }()
-	var target io.Writer = io.Discard
+	target := io.Discard
 	if root != nil {
 		if err := root.MkdirAll(path.Dir(entry.Name), 0755); err != nil {
 			return 0, err

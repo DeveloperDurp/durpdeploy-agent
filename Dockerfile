@@ -1,6 +1,6 @@
-# syntax=docker/dockerfile:1
+# syntax=harbor.durp.info/dockerhub/docker/dockerfile:1
 # Agent-only image: compile no server binary or web assets.
-FROM docker.io/library/golang:1.26-alpine AS builder
+FROM --platform=$BUILDPLATFORM harbor.durp.info/dockerhub/library/golang:1.26-alpine AS builder
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache bash
@@ -24,10 +24,12 @@ ARG BUILD_VERSION=dev
 ARG BUILD_COMMIT=unknown
 ARG BUILD_NUMBER=unknown
 ARG BUILD_MODIFIED=false
-RUN CGO_ENABLED=0 GOOS=linux bash scripts/build_agent.sh -trimpath \
-    -o /out/durpdeploy-agent && /out/durpdeploy-agent version
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH bash scripts/build_agent.sh -trimpath \
+    -o /out/durpdeploy-agent
 
-FROM docker.io/library/alpine:3.20
+FROM harbor.durp.info/dockerhub/library/alpine:3.24
 
 ARG BUILD_VERSION=dev
 ARG BUILD_COMMIT=unknown
@@ -37,7 +39,8 @@ LABEL org.opencontainers.image.version=$BUILD_VERSION \
       info.durpdeploy.build-number=$BUILD_NUMBER
 
 # hadolint ignore=DL3018
-RUN apk add --no-cache bash ca-certificates docker-cli podman-remote && \
+RUN apk upgrade --no-cache && \
+	apk add --no-cache bash ca-certificates docker-cli podman-remote && \
 	ln -s /usr/bin/podman-remote /usr/local/bin/podman && \
 	adduser -D -H -s /sbin/nologin -u 10001 durpdeploy-agent && \
 	mkdir -p /var/lib/durpdeploy-agent /tmp && \

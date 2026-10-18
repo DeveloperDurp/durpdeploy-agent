@@ -2,6 +2,7 @@
 # Exercise the real stamped executable with no runtime configuration.
 set -euo pipefail
 unset GITHUB_REF_TYPE GITHUB_REF_NAME
+unset CI_COMMIT_TAG GITLAB_CI
 directory=$(mktemp -d)
 trap 'rm -rf "$directory"' EXIT
 commit=$(git rev-parse HEAD)

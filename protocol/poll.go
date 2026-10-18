@@ -154,7 +154,7 @@ func (r PollRequest) validateMessage() error {
 		seen[interpreter] = struct{}{}
 	}
 	if r.Protocol == AgentV3 {
-		return r.ExecutionCapabilities.validate(r.SupportedInterpreters)
+		return r.validate(r.SupportedInterpreters)
 	}
 	return nil
 }

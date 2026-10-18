@@ -2,6 +2,16 @@
 # Share build identity between local builds, containers, and CI (DurpDeploy #198).
 set -euo pipefail
 
+build_ref_type=${GITHUB_REF_TYPE:-}
+build_ref_name=${GITHUB_REF_NAME:-}
+if [[ -n "${CI_COMMIT_TAG:-}" ]]; then
+	build_ref_type=tag
+	build_ref_name=$CI_COMMIT_TAG
+elif [[ "${GITLAB_CI:-}" == true ]]; then
+	build_ref_type=branch
+	build_ref_name=${CI_COMMIT_REF_NAME:-}
+fi
+
 BUILD_COMMIT=${BUILD_COMMIT:-$(git rev-parse --verify HEAD 2>/dev/null || printf unknown)}
 if [[ -z "${BUILD_NUMBER:-}" ]]; then
 	BUILD_NUMBER=unknown
@@ -20,13 +30,13 @@ fi
 semver='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
 IS_RELEASE=false
 if [[ -z "${BUILD_VERSION:-}" ]]; then
-	if [[ "${GITHUB_REF_TYPE:-}" == tag ]]; then
-		BUILD_VERSION=${GITHUB_REF_NAME:?}
+	if [[ "$build_ref_type" == tag ]]; then
+		BUILD_VERSION=${build_ref_name:?}
 		[[ "$BUILD_VERSION" =~ $semver ]] || {
 			echo 'Tag must be a valid SemVer with a v prefix.' >&2
 			exit 1
 		}
-	elif [[ -z "${GITHUB_REF_TYPE:-}" && "$BUILD_MODIFIED" == false ]]; then
+	elif [[ -z "$build_ref_type" && "$BUILD_MODIFIED" == false ]]; then
 		candidate=$(git describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null || true)
 		if [[ "$candidate" =~ $semver ]]; then
 			BUILD_VERSION=$candidate
@@ -46,8 +56,8 @@ fi
 [[ "$BUILD_COMMIT" == unknown || "$BUILD_COMMIT" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
 [[ "$BUILD_NUMBER" == unknown || "$BUILD_NUMBER" =~ ^(0|[1-9][0-9]*)$ ]]
 [[ "$BUILD_MODIFIED" == true || "$BUILD_MODIFIED" == false ]]
-if [[ "${GITHUB_REF_TYPE:-}" == tag ]]; then
-	[[ "$BUILD_VERSION" == "${GITHUB_REF_NAME:?}" && "$BUILD_MODIFIED" == false ]]
+if [[ "$build_ref_type" == tag ]]; then
+	[[ "$BUILD_VERSION" == "${build_ref_name:?}" && "$BUILD_MODIFIED" == false ]]
 	IS_RELEASE=true
 fi
 IMAGE_VERSION=${BUILD_VERSION//+/_}

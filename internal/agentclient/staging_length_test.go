@@ -32,7 +32,9 @@ func TestStagingRejectsOversizedLengthWithoutReadingBody(t *testing.T) {
 		DeploymentID: 42, ClaimToken: "claim-secret",
 	}, nil)
 	if file != nil {
-		file.Close()
+		if err := file.Close(); err != nil {
+			t.Error(err)
+		}
 		t.Fatal("accepted an oversized download")
 	}
 	if !errors.Is(err, staging.ErrInvalid) {

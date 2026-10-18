@@ -171,8 +171,9 @@ func validateEntry(
 		header.Size > MaxBytes-total {
 		return ErrInvalid
 	}
+	// Historical TAR files use NUL for regular entries; keep accepting them.
 	if !isDir && header.Typeflag != tar.TypeReg &&
-		header.Typeflag != tar.TypeRegA ||
+		header.Typeflag != 0 ||
 		isDir && header.Size != 0 {
 		return ErrInvalid
 	}

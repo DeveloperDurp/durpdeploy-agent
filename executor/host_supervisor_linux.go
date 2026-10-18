@@ -26,8 +26,16 @@ func HostSupervisorMain() (status int, handled bool) {
 	}
 	report := os.NewFile(3, "host-supervisor-report")
 	control := os.NewFile(4, "host-supervisor-control")
-	defer report.Close()
-	defer control.Close()
+	defer func() {
+		if err := report.Close(); err != nil {
+			fmt.Fprintln(os.Stderr, "close host supervisor report:", err)
+		}
+	}()
+	defer func() {
+		if err := control.Close(); err != nil {
+			fmt.Fprintln(os.Stderr, "close host supervisor control:", err)
+		}
+	}()
 	// Interpreters must not inherit the confirmation or cancellation handles.
 	syscall.CloseOnExec(3)
 	syscall.CloseOnExec(4)
@@ -72,7 +80,11 @@ func superviseHost(ctx context.Context) (int, error) {
 		fmt.Fprintln(os.Stderr, "start host interpreter:", err)
 		return 255, nil
 	}
-	defer command.Process.Release()
+	defer func() {
+		if err := command.Process.Release(); err != nil {
+			fmt.Fprintln(os.Stderr, "release reaped host interpreter:", err)
+		}
+	}()
 	// Reap explicitly instead of cmd.Wait: a single owner must collect the
 	// interpreter and all adopted children without competing wait calls.
 	return waitHostChildren(ctx, command.Process.Pid)

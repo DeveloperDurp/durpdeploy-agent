@@ -37,12 +37,20 @@ func TestHostRecoveryPersistsProgressBeforeParentPurge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	t.Cleanup(func() {
+		if err := root.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			t.Error(err)
+		}
+	})
 	child, err := os.Open(workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer child.Close()
+	t.Cleanup(func() {
+		if err := child.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			t.Error(err)
+		}
+	})
 	stage := &jobStaging{root: root, workspace: child}
 	if err := stage.recordRoots(true); err != nil {
 		t.Fatal(err)
