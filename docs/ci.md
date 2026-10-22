@@ -52,9 +52,9 @@ they do not need Docker or rootless Podman. Image publication waits for all thre
   exception. Run `bash scripts/ci/go-check.sh lint` locally with that version
   installed, or use its Harbor-proxied image.
 - `vulnerability` runs govulncheck `v1.9.0` against `./...` and the Go standard
-  library using the job's Go `1.26.9` toolchain and the current Go vulnerability
+  library using the job's Go `1.26.10` toolchain and the current Go vulnerability
   database. Reachable vulnerabilities or scan errors fail the job. Run
-  `bash scripts/ci/go-check.sh vulnerability` locally with Go 1.26 or newer.
+  `bash scripts/ci/go-check.sh vulnerability` locally with Go 1.26.10 or newer.
 - `fuzz` runs 30 seconds per target with two workers: protocol decoding,
   ZIP extraction, and encrypted payload opening. It checks strict JSON
   boundaries, staging confinement/cleanup, and recipient/deployment binding

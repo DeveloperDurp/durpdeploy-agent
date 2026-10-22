@@ -1,7 +1,7 @@
 # syntax=harbor.durp.info/dockerhub/docker/dockerfile:1
 # Tests need real local Unix sockets, bind mounts, and a rootless user manager.
 # This image runs as a disposable systemd container inside each job's DinD service.
-FROM harbor.durp.info/dockerhub/library/golang:1.26.9-bookworm AS go
+FROM harbor.durp.info/dockerhub/library/golang:1.26.10-bookworm AS go
 WORKDIR /ci-tools-src
 COPY .gitlab/ci/go.mod .gitlab/ci/go.sum ./
 RUN CGO_ENABLED=0 GOBIN=/ci-tools go install -mod=readonly \

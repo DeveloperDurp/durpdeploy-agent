@@ -1,6 +1,6 @@
 module gitlab.durp.info/durfy/apps/durp-deploy-agent/ci-tools
 
-go 1.26.9
+go 1.26.10
 
 tool (
 	github.com/boumenot/gocover-cobertura

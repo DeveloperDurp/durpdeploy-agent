@@ -34,7 +34,7 @@ default:
 
 metadata:
   stage: prepare
-  image: harbor.durp.info/dockerhub/library/golang:1.26.9-bookworm
+  image: harbor.durp.info/dockerhub/library/golang:1.26.10-bookworm
   script:
     - mkdir -p .ci
     - |
@@ -67,7 +67,7 @@ ci-tools:
 
 .go-check:
   stage: check
-  image: harbor.durp.info/dockerhub/library/golang:1.26.9-bookworm
+  image: harbor.durp.info/dockerhub/library/golang:1.26.10-bookworm
   needs: []
   timeout: 10m
   variables:
