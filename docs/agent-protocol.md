@@ -294,6 +294,12 @@ Missing mode means host. Host steps reject images; container steps require an
 image. Empty variable selection passes all compatible resolved variables; a
 non-empty selection passes only named variables. Missing selected variables,
 duplicate names, or reserved container selections fail before running the step.
+
+Host and container steps validate selected environment entries before execution.
+Names permit 1–255 ASCII letters, digits, or underscores, starting with a letter or underscore.
+Values cannot contain NUL. Empty and multiline values remain valid.
+Explicit selections exclude unselected entries from this check.
+
 Container defaults exclude runtime-client configuration variables. Secret values
 are passed through environment entries, never command arguments, and all payload
 secrets remain in the log scrubber even when a step does not select them.

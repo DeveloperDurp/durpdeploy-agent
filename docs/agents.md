@@ -122,6 +122,10 @@ Script exit 127 follows configured retries; it cannot prove a missing entrypoint
 PowerShell scripts are staged inside the private `/tmp` and run with `-File`
 so multiline blocks and terminating errors retain script execution semantics.
 
+Host and container steps validate selected environment entries before execution.
+Names permit 1–255 ASCII letters, digits, or underscores, starting with a letter or underscore.
+Values cannot contain NUL. Empty and multiline values remain valid.
+
 An empty `variable_names` passes compatible resolved variables. A non-empty
 list passes only its names. Runtime-client variable prefixes (`DOCKER_`,
 `PODMAN_`, `CONTAINER_`, `CONTAINERS_`, `SSH_`, `XDG_`, `LD_`) and `HOME`, `PATH`,

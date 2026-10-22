@@ -6,7 +6,7 @@ import (
 )
 
 func validVariableName(name string) bool {
-	if name == "" {
+	if name == "" || len(name) > 255 {
 		return false
 	}
 	for index, character := range name {
@@ -46,8 +46,7 @@ func selectStepEnvironment(
 			if container && reservedContainerVariable(name) {
 				continue
 			}
-			if container &&
-				(!validVariableName(name) || strings.ContainsRune(value, '\x00')) {
+			if !validVariableName(name) || strings.ContainsRune(value, '\x00') {
 				return nil, ErrInvalidStepExecution
 			}
 			selected[name] = value
