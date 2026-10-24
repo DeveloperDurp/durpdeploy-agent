@@ -11,9 +11,22 @@ import (
 	"time"
 
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
+	"github.com/DeveloperDurp/durpdeploy-agent/resourcepolicy"
 )
 
 func liveContainerRunner(t *testing.T) *ContainerExecutor {
+	t.Helper()
+	return liveContainerRunnerWithPolicy(t, resourcepolicy.Defaults().Container)
+}
+
+func liveContainerRunnerWithPolicy(t *testing.T, policy resourcepolicy.Container) *ContainerExecutor {
+	t.Helper()
+	limits := resourcepolicy.Defaults()
+	limits.Container = policy
+	return liveContainerRunnerWithResourcePolicy(t, limits)
+}
+
+func liveContainerRunnerWithResourcePolicy(t *testing.T, policy resourcepolicy.Limits) *ContainerExecutor {
 	t.Helper()
 	runtime, err := agentproto.ParseContainerRuntime(
 		os.Getenv("AGENT_TEST_RUNTIME"),
@@ -24,7 +37,7 @@ func liveContainerRunner(t *testing.T) *ContainerExecutor {
 	t.Setenv("DURPDEPLOY_AGENT_EXECUTION_BOUNDARY", "service")
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	runner, err := NewContainerExecutor(
+	runner, err := NewContainerExecutorWithResourcePolicy(
 		ctx,
 		ContainerConfig{
 			Runtime:         runtime,
@@ -32,6 +45,7 @@ func liveContainerRunner(t *testing.T) *ContainerExecutor {
 			AgentID:         agentproto.AgentID(t.Name()),
 			PairingIdentity: "live-contract-server/live-contract-certificate",
 		},
+		policy,
 	)
 	if err != nil {
 		t.Fatal(err)

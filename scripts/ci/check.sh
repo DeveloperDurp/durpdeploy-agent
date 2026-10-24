@@ -53,7 +53,8 @@ case "${1:?}" in
     [[ ! -s .ci/gofmt.log ]]
     go vet ./...
     gotestsum --format standard-verbose --junitfile .ci/junit/race.xml -- \
-      -race -shuffle=on -count=1 ./artifact ./protocol ./executor ./internal/agentclient ./cmd/agent
+      -race -shuffle=on -count=1 ./artifact ./protocol ./executor \
+      ./configuration ./resourcepolicy ./internal/agentclient ./cmd/agent
     make check GO_TEST='gotestsum --format standard-verbose --junitfile .ci/junit/make-$@.xml --'
     make build
     ;;

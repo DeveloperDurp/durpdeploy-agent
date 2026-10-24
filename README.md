@@ -1,5 +1,8 @@
 # DurpDeploy Agent
 
+The agent resolves [startup configuration](docs/configuration.md) from environment variables before optional complete YAML and defaults.
+Custom resource limits require a policy-aware server with the same shared resource snapshot.
+
 The DurpDeploy Agent executes deployment steps on a remote Linux host. It pairs
 with a DurpDeploy control plane over HTTPS, pins the server identity, decrypts
 authenticated deployment payloads, streams redacted logs, and runs Bash steps

@@ -7,16 +7,18 @@ RUN apk add --no-cache bash
 
 WORKDIR /build
 
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 
 COPY cmd/agent ./cmd/agent
 COPY artifact ./artifact
 COPY bootstrap ./bootstrap
+COPY configuration ./configuration
 COPY executor ./executor
 COPY internal ./internal
 COPY payload ./payload
 COPY protocol ./protocol
+COPY resourcepolicy ./resourcepolicy
 COPY state ./state
 COPY transport ./transport
 COPY scripts/build_metadata.sh scripts/build_agent.sh ./scripts/
@@ -30,6 +32,8 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH bash scripts/build_agent.sh 
     -o /out/durpdeploy-agent
 
 FROM harbor.durp.info/dockerhub/library/alpine:3.24
+
+COPY third_party/go-yaml /usr/share/licenses/durpdeploy-agent/go-yaml/
 
 ARG BUILD_VERSION=dev
 ARG BUILD_COMMIT=unknown

@@ -23,16 +23,20 @@ const claimFileName = "current-claim.json"
 
 const reconnectDelay = time.Second
 
-var newExecutor = runner.NewExecutor
+var newExecutor = executorForClient
 
 const agentHelpText = `Usage: durpdeploy-agent [version|--version|-v|help]
 
 Starts a local pairing listener until paired, then polls the persisted server.
 
 Inputs:
+  DURPDEPLOY_AGENT_CONFIG_FILE  optional complete YAML file; environment overrides YAML
   DURPDEPLOY_AGENT_LISTEN_ADDR  local address used only while pairing
   DURPDEPLOY_AGENT_STATE_DIR    private persistent state directory
   DURPDEPLOY_AGENT_VERSION      optional reported version override (defaults to build identity)
+  DURPDEPLOY_AGENT_HOSTNAME     optional physical hostname for execution logs
+  DURPDEPLOY_AGENT_EXECUTION_BOUNDARY  service execution boundary required for host jobs
+  DURPDEPLOY_EXTRA_SCRUB_PATTERNS  optional comma-separated log redaction patterns
   DURPDEPLOY_AGENT_CONTAINER_ENABLED  enable agent/3 container execution (false)
   DURPDEPLOY_AGENT_CONTAINER_RUNTIME  docker or podman (required when enabled)
   DURPDEPLOY_AGENT_CONTAINER_SOCKET   absolute unix socket URL (required when enabled)
@@ -129,20 +133,16 @@ func run(ctx context.Context, configuration config) error {
 		}
 	}()
 	for ctx.Err() == nil {
-		client, err := agentclient.NewPaired(
+		client, err := agentclient.NewPairedWithResourcePolicy(
 			configuration.stateDir,
 			configuration.agentVersion,
+			configuration.execution,
+			configuration.limits,
 		)
 		if errors.Is(err, agentstate.ErrRePairRequired) {
 			err = runBootstrap(ctx, configuration.bootstrap)
 		} else if err == nil {
-			if configuration.containers {
-				err = client.EnableContainers(ctx, configuration.container)
-			}
-			if err == nil {
-				err = runPaired(ctx, client)
-			}
-			client.Close()
+			err = runConfiguredClient(ctx, client, configuration)
 		}
 		if errors.Is(err, runner.ErrHostProcessCleanup) {
 			return err
@@ -163,6 +163,18 @@ func run(ctx context.Context, configuration config) error {
 		}
 	}
 	return ctx.Err()
+}
+
+func runConfiguredClient(ctx context.Context, client *agentclient.Client, configuration config) error {
+	var err error
+	if configuration.containers {
+		err = client.EnableContainersWithPolicy(ctx, configuration.container, configuration.limits.Container)
+	}
+	if err == nil {
+		err = runPaired(ctx, client)
+	}
+	client.Close()
+	return err
 }
 
 func runPaired(ctx context.Context, client *agentclient.Client) error {

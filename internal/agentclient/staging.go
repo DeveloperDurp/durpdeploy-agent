@@ -23,6 +23,7 @@ func (client *Client) Staging(
 	claim agentproto.PollResponse,
 	upload *os.File,
 ) (*os.File, error) {
+	policy := client.ResourcePolicy()
 	path := "download"
 	if upload != nil {
 		path = "upload"
@@ -37,14 +38,14 @@ func (client *Client) Staging(
 		return http.ErrUseLastResponse
 	}
 	transport.Transport = stagingTransport{
-		source: client.http.Transport, idleTimeout: 5 * time.Minute,
+		source: client.http.Transport, idleTimeout: time.Duration(policy.Transfer.IdleTimeoutSeconds) * time.Second,
 	}
 	for attempt := 0; ; attempt++ {
 		var body io.Reader
 		var size int64
 		if upload != nil {
 			var err error
-			body, size, err = stagingUploadBody(upload)
+			body, size, err = stagingUploadBody(upload, policy.Staging.ArchiveBytes)
 			if err != nil {
 				return nil, err
 			}
@@ -94,7 +95,7 @@ func (client *Client) Staging(
 				response.Body.Close(),
 			)
 		}
-		if response.ContentLength > staging.MaxArchive {
+		if response.ContentLength > policy.Staging.ArchiveBytes {
 			return nil, errors.Join(staging.ErrInvalid, response.Body.Close())
 		}
 		file, err := os.CreateTemp(
@@ -110,7 +111,7 @@ func (client *Client) Staging(
 		hash := sha256.New()
 		n, copyErr := io.Copy(
 			io.MultiWriter(file, hash),
-			io.LimitReader(response.Body, staging.MaxArchive+1),
+			io.LimitReader(response.Body, policy.Staging.ArchiveBytes+1),
 		)
 		closeErr := response.Body.Close()
 		var writeError *os.PathError
@@ -126,7 +127,7 @@ func (client *Client) Staging(
 			}
 			continue
 		}
-		if n > staging.MaxArchive || response.ContentLength != n ||
+		if n > policy.Staging.ArchiveBytes || response.ContentLength != n ||
 			hex.EncodeToString(
 				hash.Sum(nil),
 			) != response.Header.Get(
@@ -137,7 +138,7 @@ func (client *Client) Staging(
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
 			return nil, errors.Join(err, file.Close())
 		}
-		if err := staging.Unpack(ctx, file, ""); err != nil {
+		if err := staging.UnpackWithPolicy(ctx, file, "", policy.Staging); err != nil {
 			return nil, errors.Join(
 				fmt.Errorf("validate staging input: %w", err),
 				file.Close(),
@@ -150,13 +151,13 @@ func (client *Client) Staging(
 	}
 }
 
-func stagingUploadBody(upload *os.File) (io.Reader, int64, error) {
+func stagingUploadBody(upload *os.File, archiveBytes int64) (io.Reader, int64, error) {
 	info, err := upload.Stat()
 	if err != nil {
 		return nil, 0, err
 	}
 	size := info.Size()
-	if size > staging.MaxArchive {
+	if size > archiveBytes {
 		return nil, 0, staging.ErrInvalid
 	}
 	if _, err := upload.Seek(0, io.SeekStart); err != nil {

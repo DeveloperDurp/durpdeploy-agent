@@ -8,10 +8,20 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+
+	"github.com/DeveloperDurp/durpdeploy-agent/resourcepolicy"
 )
 
 func ValidateZIP(ctx context.Context, filename string) error {
-	return processZIP(ctx, filename, "")
+	return ValidateZIPWithPolicy(ctx, filename, resourcepolicy.Defaults().Artifact)
+}
+
+// ValidateZIPWithPolicy checks a ZIP against a validated resource snapshot.
+func ValidateZIPWithPolicy(ctx context.Context, filename string, policy resourcepolicy.Artifact) error {
+	if err := policy.Validate(); err != nil {
+		return err
+	}
+	return processZIP(ctx, filename, "", policy)
 }
 
 // ExtractZIP writes regular files only into a newly created private directory.
@@ -20,6 +30,14 @@ func ExtractZIP(
 	ctx context.Context,
 	filename string,
 ) (directory string, err error) {
+	return ExtractZIPWithPolicy(ctx, filename, resourcepolicy.Defaults().Artifact)
+}
+
+// ExtractZIPWithPolicy validates policy before creating a private extraction tree.
+func ExtractZIPWithPolicy(ctx context.Context, filename string, policy resourcepolicy.Artifact) (directory string, err error) {
+	if err := policy.Validate(); err != nil {
+		return "", err
+	}
 	directory, err = os.MkdirTemp(
 		filepath.Dir(filename),
 		"durpdeploy-artifact-",
@@ -27,14 +45,14 @@ func ExtractZIP(
 	if err != nil {
 		return "", err
 	}
-	if err = processZIP(ctx, filename, directory); err != nil {
+	if err = processZIP(ctx, filename, directory, policy); err != nil {
 		return "", errors.Join(err, os.RemoveAll(directory))
 	}
 	return directory, nil
 }
 
-func processZIP(ctx context.Context, filename, directory string) (err error) {
-	archive, file, err := openZIP(ctx, filename)
+func processZIP(ctx context.Context, filename, directory string, policy resourcepolicy.Artifact) (err error) {
+	archive, file, err := openZIP(ctx, filename, policy)
 	if err != nil {
 		return err
 	}
@@ -47,7 +65,7 @@ func processZIP(ctx context.Context, filename, directory string) (err error) {
 		}
 		defer func() { err = errors.Join(err, root.Close()) }()
 	}
-	if len(archive.File) == 0 || len(archive.File) > MaxFiles {
+	if len(archive.File) == 0 || int64(len(archive.File)) > policy.Files {
 		return ErrInvalid
 	}
 	kinds := make(map[string]zipNodeKind, len(archive.File))
@@ -56,13 +74,13 @@ func processZIP(ctx context.Context, filename, directory string) (err error) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := validateZIPEntry(entry, kinds); err != nil {
+		if err := validateZIPEntry(entry, kinds, policy.StagingNodes); err != nil {
 			return err
 		}
-		if entry.UncompressedSize64 > uint64(MaxExtracted-total) {
+		if entry.UncompressedSize64 > uint64(policy.ExtractedBytes-total) {
 			return ErrInvalid
 		}
-		count, err := processEntry(ctx, entry, root, MaxExtracted-total)
+		count, err := processEntry(ctx, entry, root, policy.ExtractedBytes-total)
 		if err != nil {
 			return err
 		}

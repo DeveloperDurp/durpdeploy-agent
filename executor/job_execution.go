@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/DeveloperDurp/durpdeploy-agent/artifact"
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
@@ -21,6 +22,12 @@ func (e *Executor) Execute(
 	}
 	if e.sandboxErr != nil {
 		return fmt.Errorf("initialize runner sandbox: %w", e.sandboxErr)
+	}
+	if err := e.executionPolicy.ValidateStep(job.timeout, int64(job.maxRetries)); err != nil {
+		return err
+	}
+	if job.timeout == 0 {
+		job.timeout = time.Duration(e.executionPolicy.DefaultTimeoutSeconds) * time.Second
 	}
 	if err := (Step{ExecutionMode: job.executionMode, ContainerImage: job.containerImage, VariableNames: job.variableNames}).ValidateExecution(); err != nil {
 		return err
@@ -48,19 +55,24 @@ func (e *Executor) Execute(
 	); err != nil {
 		return err
 	}
-	return e.executeAttempts(ctx, job, callbacks)
+	scrubber, err := e.scrubber(job.secrets)
+	if err != nil {
+		return err
+	}
+	return e.executeAttempts(ctx, job, callbacks, newRedactingWriter(scrubber, callbacks.writeLog))
 }
 
 func (e *Executor) executeAttempts(
 	ctx context.Context,
 	job Job,
 	callbacks Callbacks,
+	writer *redactingWriter,
 ) error {
-	writer := newRedactingWriter(NewScrubber(job.secrets), callbacks.writeLog)
 	maxAttempts := job.maxRetries + 1
 	var lastErr error
 	var imageID string
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	for index := range maxAttempts {
+		attempt := index + 1
 		if callbacks.cancelled != nil && callbacks.cancelled() {
 			return ErrCancelled
 		}
@@ -105,7 +117,7 @@ func (e *Executor) executeAttempt(
 	if e.container == nil {
 		return ErrContainerUnavailable
 	}
-	err := e.container.runAttempt(ctx, job, writer, callbacks, attempt, imageID)
+	err := e.container.runAttempt(ctx, job, writer, callbacks, attempt, imageID, e.hostnameOverride())
 	if err == nil {
 		return nil
 	}

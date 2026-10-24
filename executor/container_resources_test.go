@@ -55,7 +55,7 @@ func TestContainer_attempts_preserve_isolation_without_resource_quotas(t *testin
 					for _, required := range []string{
 						"--network=none", "--read-only", "--cap-drop=ALL",
 						"--security-opt=no-new-privileges", "--user=65534:65534",
-						"--tmpfs=/tmp:rw,nosuid,nodev,size=64m,mode=1777",
+						"--tmpfs=/tmp:rw,nosuid,nodev,size=67108864,mode=1777",
 						"--pids-limit=128", "--log-driver=none",
 						"--security-opt=seccomp=" + profile, "sha256:fixed",
 					} {

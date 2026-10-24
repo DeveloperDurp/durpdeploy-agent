@@ -21,6 +21,7 @@ func (r *ContainerExecutor) runAttempt(
 	callbacks Callbacks,
 	attempt int,
 	imageID *string,
+	hostnameOverride string,
 ) (result error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -32,9 +33,6 @@ func (r *ContainerExecutor) runAttempt(
 		return ErrInvalidStepExecution
 	}
 	timeout := job.timeout
-	if timeout <= 0 {
-		timeout = defaultStepTimeout
-	}
 	stepCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	writer.cancel = cancel
@@ -77,9 +75,9 @@ func (r *ContainerExecutor) runAttempt(
 		"--label=io.durpdeploy.attempt=" + name,
 		"--network=none", "--read-only", "--cap-drop=ALL",
 		"--security-opt=no-new-privileges", "--user=65534:65534",
-		"--tmpfs=/tmp:rw,nosuid,nodev,size=64m,mode=1777",
+		fmt.Sprintf("--tmpfs=/tmp:rw,nosuid,nodev,size=%d,mode=1777", r.policy.Container.TmpfsBytes),
 		"--env=HOME=/tmp", "--env=TERM=dumb", "--workdir=/tmp",
-		"--pids-limit=128", "--log-driver=none",
+		fmt.Sprintf("--pids-limit=%d", r.policy.Container.PIDs), "--log-driver=none",
 	}
 	if r.runtime == agentproto.RuntimePodman {
 		args = append(
@@ -141,7 +139,7 @@ func (r *ContainerExecutor) runAttempt(
 	setPgid(cmd)
 	if err := writer.write(fmt.Sprintf(
 		"Execution location: target=agent host=%q mode=container runtime=%q container=%q image=%q interpreter=%q attempt=%d\n",
-		writer.scrubber.Scrub(executionHostname(r.hostname)), r.runtime,
+		writer.scrubber.Scrub(configuredExecutionHostname(hostnameOverride, r.hostname)), r.runtime,
 		name, *imageID, job.interpreter, attempt,
 	)); err != nil {
 		return err

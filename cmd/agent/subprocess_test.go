@@ -23,6 +23,23 @@ import (
 	"github.com/DeveloperDurp/durpdeploy-agent/transport"
 )
 
+func TestAgentSubprocessFixture_heartbeatPins(t *testing.T) {
+	fixture := newAgentSubprocessFixture(t, "true")
+	client, _ := claimLifecycleClient(t, fixture)
+
+	response, err := client.Heartbeat(t.Context(), 42, "test-claim")
+	if err != nil {
+		t.Fatalf("heartbeat: %v", err)
+	}
+	want := agentproto.CertificateFingerprint(
+		fixture.serverID.Fingerprint.String(),
+	)
+	if len(response.ServerPins) != 1 || response.ServerPins[0] != want ||
+		response.CancelRequested {
+		t.Fatalf("unexpected fixture heartbeat: %+v", response)
+	}
+}
+
 func TestAgentSubprocess_sigtermKillsSpawnedChild(t *testing.T) {
 	// Given
 	pidDir := t.TempDir()
@@ -343,7 +360,13 @@ func (fixture *agentSubprocessFixture) handle(
 		fixture.result <- result
 		writer.WriteHeader(http.StatusNoContent)
 	case "/agent/v1/deployments/42/heartbeat":
-		_ = json.NewEncoder(writer).Encode(agentproto.HeartbeatResponse{})
+		_ = json.NewEncoder(writer).Encode(agentproto.HeartbeatResponse{
+			ServerPins: []agentproto.CertificateFingerprint{
+				agentproto.CertificateFingerprint(
+					fixture.serverID.Fingerprint.String(),
+				),
+			},
+		})
 	default:
 		writer.WriteHeader(http.StatusNotFound)
 	}
@@ -355,7 +378,7 @@ func (fixture *agentSubprocessFixture) addVariable(variable variablePayload) {
 	fixture.payload.Variables = append(fixture.payload.Variables, variable)
 }
 
-func (fixture *agentSubprocessFixture) start(t *testing.T) *exec.Cmd {
+func (fixture *agentSubprocessFixture) start(t *testing.T, extraEnvironment ...string) *exec.Cmd {
 	t.Helper()
 	state, err := agentstate.New(
 		fixture.server.URL,
@@ -388,6 +411,7 @@ func (fixture *agentSubprocessFixture) start(t *testing.T) *exec.Cmd {
 		"DURPDEPLOY_AGENT_STATE_DIR=" + fixture.stateDir,
 		"DURPDEPLOY_AGENT_VERSION=test",
 	}
+	command.Env = append(command.Env, extraEnvironment...)
 	for _, value := range command.Env {
 		if strings.HasPrefix(value, "DURPDEPLOY_SECRET_KEY=") {
 			t.Fatal("agent received server secret key")

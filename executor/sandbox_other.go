@@ -4,6 +4,6 @@ package executor
 
 import "fmt"
 
-func validateExecutionBoundary() error {
+func validateConfiguredExecutionBoundary(_ string) error {
 	return fmt.Errorf("runner sandbox requires Linux")
 }

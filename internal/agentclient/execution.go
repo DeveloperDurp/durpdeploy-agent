@@ -5,18 +5,27 @@ import (
 
 	"github.com/DeveloperDurp/durpdeploy-agent/executor"
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
+	"github.com/DeveloperDurp/durpdeploy-agent/resourcepolicy"
 )
 
 func (client *Client) EnableContainers(
 	ctx context.Context,
 	config executor.ContainerConfig,
 ) error {
+	return client.EnableContainersWithPolicy(ctx, config, client.ResourcePolicy().Container)
+}
+
+// EnableContainersWithPolicy captures container policy before polling starts.
+func (client *Client) EnableContainersWithPolicy(ctx context.Context, config executor.ContainerConfig, policy resourcepolicy.Container) error {
 	config.AgentID = client.agentID
 	config.PairingIdentity = client.serverURL + "\x00" + client.identity.Fingerprint.String()
-	runner, err := executor.NewContainerExecutor(ctx, config)
+	limits := client.ResourcePolicy()
+	limits.Container = policy
+	runner, err := executor.NewContainerExecutorWithResourcePolicy(ctx, config, limits)
 	if err != nil {
 		return err
 	}
+	client.resourcePolicy = &limits
 	client.container = runner
 	client.protocol = agentproto.AgentV3
 	return nil
@@ -30,6 +39,9 @@ func (client *Client) SupportsStep(step executor.Step) bool {
 		return false
 	}
 	if err := step.ValidateExecution(); err != nil {
+		return false
+	}
+	if err := step.ValidateLimits(client.ExecutionPolicy()); err != nil {
 		return false
 	}
 	if step.ExecutionMode == agentproto.ExecutionContainer {

@@ -12,11 +12,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/DeveloperDurp/durpdeploy-agent/resourcepolicy"
 )
 
 func newExecutorForTest(t *testing.T) *Executor {
 	t.Helper()
-	executor := &Executor{boundaryValidated: true}
+	executor := &Executor{boundaryValidated: true, executionPolicy: resourcepolicy.Defaults().Execution}
 	if err := executor.EnableHostSupervisor(); err != nil {
 		t.Fatal(err)
 	}

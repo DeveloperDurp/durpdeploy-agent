@@ -1,0 +1,37 @@
+state_dir: /private/state
+listen_addr: 127.0.0.1:23188
+version: operator-build
+hostname: demo-host
+execution_boundary: service
+extra_scrub_patterns: PRIVATE_[A-Z]+
+container:
+  enabled: true
+  runtime: podman
+  socket: unix:///run/user/1000/podman/podman.sock
+limits:
+  execution:
+    max_retries: 3
+    max_timeout_seconds: 1200
+    default_timeout_seconds: 30
+  artifact:
+    download_bytes: 1048576
+    extracted_bytes: 2097152
+    files: 20
+    staging_nodes: 39
+    metadata_bytes: 65536
+    fetch_timeout_seconds: 120
+    dial_timeout_seconds: 5
+    tls_timeout_seconds: 6
+    header_timeout_seconds: 7
+  staging:
+    payload_bytes: 4096
+    entries: 10
+    archive_bytes: 12288
+  transfer:
+    idle_timeout_seconds: 45
+  container:
+    pids: 16
+    tmpfs_bytes: 4096
+    helper_pids: 4
+    helper_cpus: 0.5
+    helper_memory_overhead_bytes: 8192

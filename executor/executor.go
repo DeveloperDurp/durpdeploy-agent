@@ -9,12 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"time"
+
+	"github.com/DeveloperDurp/durpdeploy-agent/resourcepolicy"
 )
 
-const (
-	defaultStepTimeout = 5 * time.Minute
-	serviceUsername    = "durpdeploy-agent"
-)
+const serviceUsername = "durpdeploy-agent"
 
 var ErrCancelled = errors.New("step execution cancelled")
 
@@ -68,6 +67,8 @@ type Executor struct {
 	killGroup         func(int)
 	container         *ContainerExecutor
 	hostSupervisor    string
+	startupSettings   *StartupSettings
+	executionPolicy   resourcepolicy.Execution
 }
 
 // NewExecutorWithContainers keeps host execution inside its existing boundary.
@@ -78,10 +79,7 @@ func NewExecutorWithContainers(container *ContainerExecutor) *Executor {
 }
 
 func NewExecutor() *Executor {
-	return &Executor{
-		boundaryValidated: true,
-		sandboxErr:        validateExecutionBoundary(),
-	}
+	return NewExecutorWithSettings(startupSettingsFromEnvironment(), nil)
 }
 
 func stepContextError(ctx context.Context) error {
@@ -100,9 +98,6 @@ func (e *Executor) runAttempt(
 	attempt int,
 ) (err error) {
 	timeout := job.timeout
-	if timeout <= 0 {
-		timeout = defaultStepTimeout
-	}
 	stepCtx, cancel := context.WithTimeout(runCtx, timeout)
 	defer cancel()
 	writer.cancel = cancel
@@ -156,15 +151,10 @@ func (e *Executor) runAttempt(
 	var output bytes.Buffer
 	cmd.Stdout = io.MultiWriter(&output, writer)
 	cmd.Stderr = io.MultiWriter(&output, writer)
-	host := ""
-	if e.container != nil {
-		e.container.mu.Lock()
-		host = e.container.hostname
-		e.container.mu.Unlock()
-	}
+	host := e.runtimeHostname()
 	if err := writer.write(fmt.Sprintf(
 		"Execution location: target=agent host=%q mode=host/shell interpreter=%q attempt=%d\n",
-		writer.scrubber.Scrub(executionHostname(host)), job.interpreter, attempt,
+		writer.scrubber.Scrub(configuredExecutionHostname(e.hostnameOverride(), host)), job.interpreter, attempt,
 	)); err != nil {
 		return err
 	}
@@ -194,6 +184,17 @@ func (e *Executor) runAttempt(
 		}(pgid)
 		<-cleanupDone
 	}
+	return finishAttemptLogs(stepCtx, job, writer, attempt, timeout, err)
+}
+
+func finishAttemptLogs(
+	stepCtx context.Context,
+	job Job,
+	writer *redactingWriter,
+	attempt int,
+	timeout time.Duration,
+	err error,
+) error {
 	if flushErr := writer.flush(); flushErr != nil {
 		return flushErr
 	}
@@ -217,6 +218,16 @@ func (e *Executor) runAttempt(
 		}
 	}
 	return err
+}
+
+func (e *Executor) runtimeHostname() string {
+	host := ""
+	if e.container != nil {
+		e.container.mu.Lock()
+		host = e.container.hostname
+		e.container.mu.Unlock()
+	}
+	return host
 }
 
 func (e *Executor) command(

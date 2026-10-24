@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
+	"github.com/DeveloperDurp/durpdeploy-agent/resourcepolicy"
 )
 
 const (
@@ -23,7 +24,7 @@ const (
 var (
 	ErrInvalid       = errors.New("invalid artifact repository or ZIP")
 	ErrChecksum      = errors.New("artifact checksum mismatch")
-	ErrMetadataLimit = fmt.Errorf("ZIP metadata reads exceed 16 MiB: %w", ErrInvalid)
+	ErrMetadataLimit = fmt.Errorf("ZIP metadata read limit exceeded: %w", ErrInvalid)
 )
 
 // Pin is package identity authenticated by the encrypted job payload.
@@ -38,8 +39,16 @@ type DownloadRequest struct {
 }
 
 func (p Pin) Validate() error {
+	return p.ValidateWithPolicy(resourcepolicy.Defaults().Artifact)
+}
+
+// ValidateWithPolicy checks identity and size against a validated value snapshot.
+func (p Pin) ValidateWithPolicy(policy resourcepolicy.Artifact) error {
+	if err := policy.Validate(); err != nil {
+		return err
+	}
 	hash, err := hex.DecodeString(p.SHA256)
-	if err != nil || len(hash) != 32 || p.Size <= 0 || p.Size > MaxDownload {
+	if err != nil || len(hash) != 32 || p.Size <= 0 || p.Size > policy.DownloadBytes {
 		return ErrInvalid
 	}
 	return nil

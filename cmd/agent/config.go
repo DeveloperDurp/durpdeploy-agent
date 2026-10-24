@@ -1,15 +1,18 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 
 	"github.com/DeveloperDurp/durpdeploy-agent/bootstrap"
+	"github.com/DeveloperDurp/durpdeploy-agent/configuration"
 	"github.com/DeveloperDurp/durpdeploy-agent/executor"
 	"github.com/DeveloperDurp/durpdeploy-agent/internal/buildinfo"
 	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
+	"github.com/DeveloperDurp/durpdeploy-agent/resourcepolicy"
 )
 
 type config struct {
@@ -18,32 +21,40 @@ type config struct {
 	bootstrap    agentbootstrap.Config
 	containers   bool
 	container    executor.ContainerConfig
+	execution    executor.StartupSettings
+	limits       resourcepolicy.Limits
 }
 
 func loadConfig() (config, error) {
-	stateDir, err := stateDirectory()
+	settings, err := configuration.Load()
+	if err != nil {
+		return config{}, err
+	}
+	if _, err := executor.NewScrubberWithPatterns(nil, settings.ExtraScrubPatterns); err != nil {
+		return config{}, err
+	}
+	stateDir, err := stateDirectory(settings.StateDir)
 	if err != nil {
 		return config{}, err
 	}
 	enabled := false
-	if raw := os.Getenv("DURPDEPLOY_AGENT_CONTAINER_ENABLED"); raw != "" {
+	if raw := settings.Container.Enabled; raw != "" {
 		enabled, err = strconv.ParseBool(raw)
 		if err != nil {
-			return config{}, fmt.Errorf(
-				"DURPDEPLOY_AGENT_CONTAINER_ENABLED must be true or false: %w",
-				err,
+			return config{}, errors.New(
+				"DURPDEPLOY_AGENT_CONTAINER_ENABLED must be true or false",
 			)
 		}
 	}
 	container := executor.ContainerConfig{}
 	if enabled {
 		container.Runtime, err = agentproto.ParseContainerRuntime(
-			os.Getenv("DURPDEPLOY_AGENT_CONTAINER_RUNTIME"),
+			settings.Container.Runtime,
 		)
 		if err != nil {
 			return config{}, err
 		}
-		container.SocketURL = os.Getenv("DURPDEPLOY_AGENT_CONTAINER_SOCKET")
+		container.SocketURL = settings.Container.Socket
 		if container.SocketURL == "" {
 			return config{}, fmt.Errorf(
 				"DURPDEPLOY_AGENT_CONTAINER_SOCKET is required: %w",
@@ -51,30 +62,35 @@ func loadConfig() (config, error) {
 			)
 		}
 	}
+	version := reportedAgentVersion(settings.Version)
 	return config{
 		containers:   enabled,
 		container:    container,
 		stateDir:     stateDir,
-		agentVersion: reportedAgentVersion(),
+		agentVersion: version,
+		limits:       settings.Limits,
+		execution: executor.StartupSettings{
+			ExecutionBoundary:  settings.ExecutionBoundary,
+			Hostname:           settings.Hostname,
+			ExtraScrubPatterns: settings.ExtraScrubPatterns,
+		},
 		bootstrap: agentbootstrap.Config{
 			StateDir:     stateDir,
-			AgentVersion: reportedAgentVersion(),
-			ListenAddr: os.Getenv(
-				"DURPDEPLOY_AGENT_LISTEN_ADDR",
-			),
+			AgentVersion: version,
+			ListenAddr:   settings.ListenAddr,
 		},
 	}, nil
 }
 
-func reportedAgentVersion() agentproto.AgentVersion {
-	if override := os.Getenv("DURPDEPLOY_AGENT_VERSION"); override != "" {
+func reportedAgentVersion(override string) agentproto.AgentVersion {
+	if override != "" {
 		return agentproto.AgentVersion(override)
 	}
 	return agentproto.AgentVersion(buildinfo.Current().String())
 }
 
-func stateDirectory() (string, error) {
-	if directory := os.Getenv("DURPDEPLOY_AGENT_STATE_DIR"); directory != "" {
+func stateDirectory(directory string) (string, error) {
+	if directory != "" {
 		return directory, nil
 	}
 	directory, err := os.UserConfigDir()

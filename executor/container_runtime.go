@@ -16,6 +16,7 @@ import (
 	"time"
 
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
+	"github.com/DeveloperDurp/durpdeploy-agent/resourcepolicy"
 )
 
 var (
@@ -47,12 +48,33 @@ type ContainerExecutor struct {
 	mu         sync.Mutex
 	cleanupErr error
 	stages     map[string]stageAccess
+	policy     resourcepolicy.Limits
+}
+
+// NewContainerExecutorWithPolicy validates and captures container resource values.
+// Other resource groups retain their defaults.
+func NewContainerExecutorWithPolicy(ctx context.Context, config ContainerConfig, policy resourcepolicy.Container) (*ContainerExecutor, error) {
+	limits := resourcepolicy.Defaults()
+	limits.Container = policy
+	return NewContainerExecutorWithResourcePolicy(ctx, config, limits)
 }
 
 func NewContainerExecutor(
 	ctx context.Context,
 	config ContainerConfig,
 ) (*ContainerExecutor, error) {
+	return NewContainerExecutorWithResourcePolicy(ctx, config, resourcepolicy.Defaults())
+}
+
+// NewContainerExecutorWithResourcePolicy validates and captures the full snapshot.
+func NewContainerExecutorWithResourcePolicy(
+	ctx context.Context,
+	config ContainerConfig,
+	policy resourcepolicy.Limits,
+) (*ContainerExecutor, error) {
+	if err := policy.Validate(); err != nil {
+		return nil, err
+	}
 	if _, err := agentproto.ParseContainerRuntime(
 		string(config.Runtime),
 	); err != nil {
@@ -90,6 +112,7 @@ func NewContainerExecutor(
 		socketURL:  config.SocketURL,
 		socketPath: u.Path,
 		namespace:  "agent-" + hex.EncodeToString(digest[:]),
+		policy:     policy,
 	}
 	runner.clientHome, err = os.MkdirTemp("", "durpdeploy-runtime-client-*")
 	if err != nil {

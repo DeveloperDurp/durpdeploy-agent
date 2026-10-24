@@ -75,6 +75,7 @@ func TestAgentVersionSubprocess(t *testing.T) {
 					"DURPDEPLOY_AGENT_CONTAINER_ENABLED=invalid",
 					"DURPDEPLOY_AGENT_LISTEN_ADDR=invalid",
 					"DURPDEPLOY_AGENT_VERSION=" + override,
+					"DURPDEPLOY_AGENT_CONFIG_FILE=" + filepath.Join(stateDir, "missing.yaml"),
 				}
 				output, err := command.CombinedOutput()
 				want := string(identity)

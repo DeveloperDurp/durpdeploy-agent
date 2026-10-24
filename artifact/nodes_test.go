@@ -40,13 +40,14 @@ func TestZIPNodeBudgetDoesNotChargeRepeatedParents(t *testing.T) {
 	// Given
 	kinds := make(map[string]zipNodeKind)
 	entry := &zip.File{FileHeader: zip.FileHeader{Name: "parent/file"}}
-	if err := validateZIPEntry(entry, kinds); err != nil {
+	if err := validateZIPEntry(entry, kinds, MaxStagingNodes); err != nil {
 		t.Fatal(err)
 	}
 	// When
 	err := validateZIPEntry(
 		&zip.File{FileHeader: zip.FileHeader{Name: "parent/other"}},
 		kinds,
+		MaxStagingNodes,
 	)
 	// Then
 	if err != nil || len(kinds) != 3 {
@@ -57,7 +58,7 @@ func TestZIPNodeBudgetDoesNotChargeRepeatedParents(t *testing.T) {
 func TestZIPAllowsExplicitDirectoryAfterImplicitParent(t *testing.T) {
 	kinds := make(map[string]zipNodeKind)
 	for _, name := range []string{"parent/child/file", "parent/", "parent/child/", "parent/other"} {
-		if err := validateZIPEntry(&zip.File{FileHeader: zip.FileHeader{Name: name}}, kinds); err != nil {
+		if err := validateZIPEntry(&zip.File{FileHeader: zip.FileHeader{Name: name}}, kinds, MaxStagingNodes); err != nil {
 			t.Fatalf("valid shared parent %q rejected: %v", name, err)
 		}
 	}

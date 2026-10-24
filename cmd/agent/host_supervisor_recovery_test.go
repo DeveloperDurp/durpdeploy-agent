@@ -17,6 +17,7 @@ import (
 
 	"github.com/DeveloperDurp/durpdeploy-agent/executor"
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
+	"github.com/DeveloperDurp/durpdeploy-agent/resourcepolicy"
 )
 
 func TestHostSupervisorFailureStopsAgentUntilRestart(t *testing.T) {
@@ -65,7 +66,14 @@ func testHostSupervisorFailureRecovery(t *testing.T, root string) {
 			}
 			fixture.handle(w, r)
 		})
-	configuration := config{stateDir: fixture.stateDir, agentVersion: "test"}
+	configuration := config{
+		stateDir:     fixture.stateDir,
+		agentVersion: "test",
+		limits:       resourcepolicy.Defaults(),
+		execution: executor.StartupSettings{
+			ExecutionBoundary: "service",
+		},
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	if err := run(

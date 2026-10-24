@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"errors"
 	"os"
 	"regexp"
 	"sort"
@@ -18,19 +19,6 @@ var commonSecretPatterns = []string{
 	`(?i:\b(password|token|key)\s*=\s*[^\s"']+)`,
 }
 
-func init() {
-	if extra := os.Getenv("DURPDEPLOY_EXTRA_SCRUB_PATTERNS"); extra != "" {
-		// ponytail: comma is the separator. If a regex needs a comma
-		// (e.g. {1,2}), this will break it. Use multiple env vars or
-		// a different separator if this becomes a problem.
-		for _, p := range strings.Split(extra, ",") {
-			if p = strings.TrimSpace(p); p != "" {
-				commonSecretPatterns = append(commonSecretPatterns, p)
-			}
-		}
-	}
-}
-
 // Scrubber redacts known secret values and common credential patterns from
 // arbitrary text using a single pre-compiled regex. Redaction is best-effort:
 // it catches literal secret values and a handful of common token formats, not
@@ -43,6 +31,54 @@ type Scrubber struct {
 // first, so a longer secret is redacted whole rather than leaving a suffix
 // behind) plus the common credential patterns. Empty secrets are ignored.
 func NewScrubber(secrets []string) *Scrubber {
+	scrubber, err := NewScrubberWithPatterns(secrets, os.Getenv("DURPDEPLOY_EXTRA_SCRUB_PATTERNS"))
+	if err != nil {
+		// The legacy signature cannot report invalid patterns. Redact all output.
+		return &Scrubber{re: regexp.MustCompile("(?s).+")}
+	}
+	return scrubber
+}
+
+// NewScrubberWithPatterns keeps built-in and literal-secret redaction while
+// adding captured comma-separated patterns. Errors never include their input.
+func NewScrubberWithPatterns(secrets []string, extra string) (*Scrubber, error) {
+	patterns, err := scrubPatterns(extra)
+	if err != nil {
+		return nil, err
+	}
+	literals := scrubLiterals(secrets)
+	parts := make([]string, 0, len(literals)+len(patterns))
+	for _, s := range literals {
+		parts = append(parts, regexp.QuoteMeta(s))
+	}
+	parts = append(parts, patterns...)
+	if len(parts) == 0 {
+		return &Scrubber{}, nil
+	}
+	// (?s) also protects literal secrets containing newlines.
+	re, err := regexp.Compile("(?s)(" + strings.Join(parts, "|") + ")")
+	if err != nil {
+		return nil, errors.New("invalid log scrub patterns")
+	}
+	return &Scrubber{re: re}, nil
+}
+
+func scrubPatterns(extra string) ([]string, error) {
+	patterns := append([]string(nil), commonSecretPatterns...)
+	for _, pattern := range strings.Split(extra, ",") {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		if _, err := regexp.Compile(pattern); err != nil {
+			return nil, errors.New("invalid extra scrub pattern")
+		}
+		patterns = append(patterns, pattern)
+	}
+	return patterns, nil
+}
+
+func scrubLiterals(secrets []string) []string {
 	literals := make([]string, 0, len(secrets))
 	for _, s := range secrets {
 		if s == "" {
@@ -63,26 +99,7 @@ func NewScrubber(secrets []string) *Scrubber {
 		return len(literals[i]) > len(literals[j])
 	})
 
-	parts := make([]string, 0, len(literals)+len(commonSecretPatterns))
-	for _, s := range literals {
-		parts = append(parts, regexp.QuoteMeta(s))
-	}
-	parts = append(parts, commonSecretPatterns...)
-
-	if len(parts) == 0 {
-		return &Scrubber{}
-	}
-
-	// (?s) so literal secrets containing newlines (e.g. a multi-line SSH
-	// key) still match across lines.
-	re, err := regexp.Compile("(?s)(" + strings.Join(parts, "|") + ")")
-	if err != nil {
-		// Should never happen: literals are escaped and the common
-		// patterns are static, but fall back to no-op scrubbing rather
-		// than panicking on a malformed secret.
-		return &Scrubber{}
-	}
-	return &Scrubber{re: re}
+	return literals
 }
 
 // Scrub replaces every match with "[REDACTED]". A zero-value Scrubber (no

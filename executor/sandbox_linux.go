@@ -4,11 +4,10 @@ package executor
 
 import (
 	"fmt"
-	"os"
 )
 
-func validateExecutionBoundary() error {
-	if os.Getenv("DURPDEPLOY_AGENT_EXECUTION_BOUNDARY") != "service" {
+func validateConfiguredExecutionBoundary(boundary string) error {
+	if boundary != "service" {
 		return fmt.Errorf(
 			"runner sandbox requires service execution boundary",
 		)

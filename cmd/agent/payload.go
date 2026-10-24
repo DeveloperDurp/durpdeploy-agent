@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/DeveloperDurp/durpdeploy-agent/artifact"
 	runner "github.com/DeveloperDurp/durpdeploy-agent/executor"
+	"github.com/DeveloperDurp/durpdeploy-agent/resourcepolicy"
 )
 
 type deploymentPayload struct {
@@ -42,6 +42,13 @@ type variablePayload struct {
 }
 
 func decodePayload(raw []byte, deploymentID int64) (deploymentPayload, error) {
+	return decodePayloadWithResourcePolicy(raw, deploymentID, resourcepolicy.Defaults())
+}
+
+func decodePayloadWithResourcePolicy(raw []byte, deploymentID int64, policy resourcepolicy.Limits) (deploymentPayload, error) {
+	if err := policy.Validate(); err != nil {
+		return deploymentPayload{}, err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	var payload deploymentPayload
@@ -59,30 +66,41 @@ func decodePayload(raw []byte, deploymentID int64) (deploymentPayload, error) {
 			"staging requires one claimed step",
 		)
 	}
-	if payload.Release.Artifact != nil {
-		if !payload.Release.Staging {
-			return deploymentPayload{}, artifact.ErrInvalid
-		}
-		if err := payload.Release.Artifact.Validate(); err != nil {
-			return deploymentPayload{}, err
-		}
+	if err := payload.Release.validateArtifact(policy.Artifact); err != nil {
+		return deploymentPayload{}, err
 	}
 	for index, step := range payload.Release.Steps {
-		if err := step.ValidateExecution(); err != nil {
+		if err := validatePayloadStep(step, index, policy.Execution); err != nil {
 			return deploymentPayload{}, err
 		}
 		if step.Interpreter == "" {
 			payload.Release.Steps[index].Interpreter = runner.InterpreterBash
-			step.Interpreter = runner.InterpreterBash
-		}
-		if step.Name == "" || step.ScriptBody == "" ||
-			step.SortOrder != int64(index+1) ||
-			step.TimeoutSeconds < 0 || step.TimeoutSeconds > int64((1<<63-1)/time.Second) ||
-			step.MaxRetries < 0 || step.MaxRetries > int64(int(^uint(0)>>1))-1 {
-			return deploymentPayload{}, errors.New("invalid deployment payload")
 		}
 	}
 	return payload, nil
+}
+
+func (release releasePayload) validateArtifact(policy resourcepolicy.Artifact) error {
+	if release.Artifact == nil {
+		return nil
+	}
+	if !release.Staging {
+		return artifact.ErrInvalid
+	}
+	return release.Artifact.ValidateWithPolicy(policy)
+}
+
+func validatePayloadStep(step runner.Step, index int, policy resourcepolicy.Execution) error {
+	if err := step.ValidateExecution(); err != nil {
+		return err
+	}
+	if err := step.ValidateLimits(policy); err != nil {
+		return err
+	}
+	if step.Name == "" || step.ScriptBody == "" || step.SortOrder != int64(index+1) {
+		return errors.New("invalid deployment payload")
+	}
+	return nil
 }
 
 func (payload deploymentPayload) validateExecution(

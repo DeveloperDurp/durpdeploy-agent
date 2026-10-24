@@ -13,6 +13,12 @@ type stagingTransport struct {
 	idleTimeout time.Duration
 }
 
+func (transport stagingTransport) CloseIdleConnections() {
+	if source, ok := transport.source.(interface{ CloseIdleConnections() }); ok {
+		source.CloseIdleConnections()
+	}
+}
+
 func (transport stagingTransport) RoundTrip(
 	request *http.Request,
 ) (*http.Response, error) {

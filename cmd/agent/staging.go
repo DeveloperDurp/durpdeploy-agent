@@ -11,6 +11,7 @@ import (
 	"github.com/DeveloperDurp/durpdeploy-agent/internal/agentclient"
 	"github.com/DeveloperDurp/durpdeploy-agent/internal/staging"
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
+	"github.com/DeveloperDurp/durpdeploy-agent/resourcepolicy"
 )
 
 type jobStaging struct {
@@ -25,6 +26,7 @@ type jobStaging struct {
 	recoveryRoots     []*stagingRootRecord
 	container         *runner.ContainerStage
 	input             *os.File
+	policy            resourcepolicy.Staging
 }
 
 func newJobStaging(
@@ -46,6 +48,7 @@ func newJobStaging(
 	stage := &jobStaging{
 		directory: filepath.Join(parent, "workspace"),
 		parent:    parent, input: input,
+		policy: client.ResourcePolicy().Staging,
 	}
 	stage.root, err = os.Open(filepath.Join(client.StateDir(), "staging"))
 	if err != nil {
@@ -75,7 +78,7 @@ func (s *jobStaging) configure(
 		config.StageVolume = container.Volume
 		return nil
 	}
-	if err := staging.Unpack(ctx, s.input, s.directory); err != nil {
+	if err := staging.UnpackWithPolicy(ctx, s.input, s.directory, s.policy); err != nil {
 		return err
 	}
 	config.StageDirectory = s.directory
@@ -107,14 +110,14 @@ func (s *jobStaging) publish(
 		if !os.SameFile(s.original, current) || !current.IsDir() {
 			return staging.ErrInvalid
 		}
-		if err := staging.Pack(ctx, s.directory, file); err != nil {
+		if err := staging.PackWithPolicy(ctx, s.directory, file, s.policy); err != nil {
 			return err
 		}
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	if err := staging.Unpack(ctx, file, ""); err != nil {
+	if err := staging.UnpackWithPolicy(ctx, file, "", s.policy); err != nil {
 		return err
 	}
 	_, err = client.Staging(ctx, claim, file)

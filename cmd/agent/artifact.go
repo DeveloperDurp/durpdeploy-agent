@@ -28,7 +28,7 @@ func (s *jobStaging) configureArtifact(
 	defer func() {
 		result = errors.Join(result, file.Close(), os.Remove(file.Name()))
 	}()
-	s.artifactDirectory, err = artifact.ExtractZIP(ctx, file.Name())
+	s.artifactDirectory, err = artifact.ExtractZIPWithPolicy(ctx, file.Name(), client.ResourcePolicy().Artifact)
 	if err != nil {
 		return err
 	}

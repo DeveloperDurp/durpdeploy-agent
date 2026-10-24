@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
+	"github.com/DeveloperDurp/durpdeploy-agent/resourcepolicy"
 	"github.com/DeveloperDurp/durpdeploy-agent/state"
 	"github.com/DeveloperDurp/durpdeploy-agent/transport"
 )
@@ -33,6 +34,7 @@ func TestRun_reconnectsAfterRejectedPoll(t *testing.T) {
 		done <- run(ctx, config{
 			stateDir:     fixture.stateDir,
 			agentVersion: agentproto.AgentVersion("test"),
+			limits:       resourcepolicy.Defaults(),
 		})
 	}()
 

@@ -10,6 +10,8 @@ import (
 	"os"
 	"path"
 	"strings"
+
+	"github.com/DeveloperDurp/durpdeploy-agent/resourcepolicy"
 )
 
 const MaxBytes int64 = 512 << 20
@@ -22,16 +24,30 @@ func Pack(
 	ctx context.Context,
 	directory string,
 	target io.Writer,
+) error {
+	return PackWithPolicy(ctx, directory, target, resourcepolicy.Defaults().Staging)
+}
+
+// PackWithPolicy applies a copied, validated policy to the complete TAR output.
+// The caller must discard partial output when packing fails.
+func PackWithPolicy(
+	ctx context.Context,
+	directory string,
+	target io.Writer,
+	policy resourcepolicy.Staging,
 ) (result error) {
+	if err := policy.Validate(); err != nil {
+		return err
+	}
 	root, err := os.OpenRoot(directory)
 	if err != nil {
 		return err
 	}
 	defer func() { result = errors.Join(result, root.Close()) }()
-	writer := tar.NewWriter(target)
+	writer := tar.NewWriter(&boundedWriter{target: target, remaining: policy.ArchiveBytes})
 	defer func() { result = errors.Join(result, writer.Close()) }()
 	var total int64
-	var count int
+	var count int64
 	return fs.WalkDir(
 		root.FS(),
 		".",
@@ -53,26 +69,14 @@ func Pack(
 				return ErrInvalid
 			}
 			count++
-			if count > MaxFiles {
+			if count > policy.Entries {
 				return ErrInvalid
 			}
-			header := &tar.Header{
-				Name:     name,
-				Mode:     0644,
-				Size:     info.Size(),
-				Typeflag: tar.TypeReg,
-				Uid:      65534,
-				Gid:      65534,
-			}
-			if info.IsDir() {
-				header.Mode = 0755
-				header.Size = 0
-				header.Typeflag = tar.TypeDir
+			header := packHeader(name, info)
+			if header.Size > policy.PayloadBytes-total {
+				return ErrInvalid
 			}
 			total += header.Size
-			if total > MaxBytes {
-				return ErrInvalid
-			}
 			if err := writer.WriteHeader(header); err != nil {
 				return err
 			}
@@ -93,12 +97,43 @@ func Pack(
 	)
 }
 
+func packHeader(name string, info fs.FileInfo) *tar.Header {
+	header := &tar.Header{
+		Name:     name,
+		Mode:     0644,
+		Size:     info.Size(),
+		Typeflag: tar.TypeReg,
+		Uid:      65534,
+		Gid:      65534,
+	}
+	if info.IsDir() {
+		header.Mode = 0755
+		header.Size = 0
+		header.Typeflag = tar.TypeDir
+	}
+	return header
+}
+
 // Unpack validates even when directory is empty, before importing into a volume.
 func Unpack(
 	ctx context.Context,
 	source io.Reader,
 	directory string,
+) error {
+	return UnpackWithPolicy(ctx, source, directory, resourcepolicy.Defaults().Staging)
+}
+
+// UnpackWithPolicy validates the full TAR and applies the captured staging limits.
+// The caller owns cleanup of the destination after any failure.
+func UnpackWithPolicy(
+	ctx context.Context,
+	source io.Reader,
+	directory string,
+	policy resourcepolicy.Staging,
 ) (result error) {
+	if err := policy.Validate(); err != nil {
+		return err
+	}
 	var root *os.Root
 	if directory != "" {
 		var err error
@@ -108,9 +143,10 @@ func Unpack(
 		}
 		defer func() { result = errors.Join(result, root.Close()) }()
 	}
+	archive := &io.LimitedReader{R: source, N: policy.ArchiveBytes + 1}
 	bounded := &boundedReader{
 		cancelled: ctx.Err,
-		source:    io.LimitReader(source, MaxArchive+1),
+		source:    archive,
 	}
 	reader := tar.NewReader(bounded)
 	seen := make(map[string]bool)
@@ -134,7 +170,7 @@ func Unpack(
 		if declared[name] {
 			return ErrInvalid
 		}
-		if err := validateEntry(header, seen, total); err != nil {
+		if err := validateEntry(header, seen, total, policy); err != nil {
 			return err
 		}
 		declared[name] = true
@@ -145,7 +181,7 @@ func Unpack(
 		}
 	}
 	bounded.remaining = 16 << 20
-	return validateTrailer(bounded)
+	return validateTrailer(bounded, archive)
 }
 
 func validName(name string) bool {
@@ -157,6 +193,7 @@ func validateEntry(
 	header *tar.Header,
 	seen map[string]bool,
 	total int64,
+	policy resourcepolicy.Staging,
 ) error {
 	name := header.Name
 	if !validName(name) {
@@ -168,7 +205,7 @@ func validateEntry(
 		return ErrInvalid
 	}
 	if header.Size < 0 ||
-		header.Size > MaxBytes-total {
+		header.Size > policy.PayloadBytes-total {
 		return ErrInvalid
 	}
 	// Historical TAR files use NUL for regular entries; keep accepting them.
@@ -179,7 +216,7 @@ func validateEntry(
 	}
 	seen[name] = isDir
 	for parent := path.Dir(name); parent != "."; parent = path.Dir(parent) {
-		if len(seen) > MaxFiles {
+		if int64(len(seen)) > policy.Entries {
 			return ErrInvalid
 		}
 		if dir, exists := seen[parent]; exists && !dir {
@@ -187,7 +224,7 @@ func validateEntry(
 		}
 		seen[parent] = true
 	}
-	if len(seen) > MaxFiles {
+	if int64(len(seen)) > policy.Entries {
 		return ErrInvalid
 	}
 	return nil
@@ -219,9 +256,9 @@ func restoreEntry(root *os.Root, header *tar.Header, reader *tar.Reader) error {
 	return errors.Join(copyErr, file.Close())
 }
 
-func validateTrailer(bounded io.Reader) error {
+func validateTrailer(bounded io.Reader, archive *io.LimitedReader) error {
 	trailer, err := io.ReadAll(io.LimitReader(bounded, (16<<20)+1))
-	if err != nil || len(trailer) > 16<<20 {
+	if err != nil || len(trailer) > 16<<20 || archive.N == 0 {
 		return ErrInvalid
 	}
 	for _, value := range trailer {
@@ -230,6 +267,20 @@ func validateTrailer(bounded io.Reader) error {
 		}
 	}
 	return nil
+}
+
+type boundedWriter struct {
+	target    io.Writer
+	remaining int64
+}
+
+func (w *boundedWriter) Write(data []byte) (int, error) {
+	if int64(len(data)) > w.remaining {
+		return 0, ErrInvalid
+	}
+	n, err := w.target.Write(data)
+	w.remaining -= int64(n)
+	return n, err
 }
 
 type boundedReader struct {

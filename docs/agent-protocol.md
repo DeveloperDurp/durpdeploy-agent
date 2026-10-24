@@ -7,6 +7,23 @@ listener, database state, runner authorization, or fallback path.
 
 ## Endpoints and payloads
 
+Poll requests advertise a complete validated resource snapshot through `X-DurpDeploy-Resource-Policy`.
+Use the versioned digest format in [configuration](configuration.md#policy-compatibility-go-interface).
+Successful 200 and 204 poll responses can acknowledge the configured policy through the same header.
+Policy-aware servers must check compatibility before dispatch and return their validated configured advertisement.
+Do not echo an unchecked request header.
+
+The client checks acknowledgements before decoding or returning a claim.
+Custom policies require exactly one matching acknowledgement.
+Default policies also accept an absent acknowledgement from a legacy server.
+Repeated, explicitly empty, unknown, malformed, and mismatched acknowledgements fail with a typed incompatibility error.
+The client closes rejected responses. Existing retry and error status handling stays unchanged.
+
+The header does not replace mutual TLS authentication or certificate pinning.
+Request JSON and encrypted payload schemas remain unchanged.
+The executable accepts validated custom policies and requires matching acknowledgements before execution.
+Server dispatch enforcement remains pending in the coordinated rollout.
+
 Package support uses the optional `X-DurpDeploy-Artifact: artifact/1` poll capability.
 Package jobs also require `X-DurpDeploy-Staging: staging/1`.
 The encrypted release object includes `artifact: {"sha256":"...","size":123}`.

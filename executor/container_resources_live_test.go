@@ -68,7 +68,7 @@ func TestContainerLive_attempts_preserve_isolation_without_resource_quotas(t *te
 					if config.Memory != 0 || config.NanoCpus != 0 || config.CpuQuota != 0 {
 						return fmt.Errorf("step resource quotas: %+v", config)
 					}
-					if config.PidsLimit != 128 || !config.ReadonlyRootfs || config.NetworkMode != "none" || containers[0].Config.User != "65534:65534" || !strings.Contains(config.Tmpfs["/tmp"], "size=64m") {
+					if config.PidsLimit != 128 || !config.ReadonlyRootfs || config.NetworkMode != "none" || containers[0].Config.User != "65534:65534" || !strings.Contains(config.Tmpfs["/tmp"], "size=67108864") {
 						return fmt.Errorf("step isolation: %+v", containers[0])
 					}
 					inspected++

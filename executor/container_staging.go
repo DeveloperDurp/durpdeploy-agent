@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/DeveloperDurp/durpdeploy-agent/internal/staging"
 	agentproto "github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
 
@@ -61,11 +61,7 @@ func (r *ContainerExecutor) newStage(
 		return nil, err
 	}
 	name := "durpdeploy-agent-stage-" + hex.EncodeToString(nonce[:])
-	capacity := staging.MaxBytes + int64(
-		staging.MaxFiles,
-	)*int64(
-		os.Getpagesize(),
-	)
+	capacity, entries := r.stageCapacity(readOnly)
 	stage = &ContainerStage{
 		Volume: name, volume: name, keeper: name + "-keeper", runner: r,
 	}
@@ -102,7 +98,7 @@ func (r *ContainerExecutor) newStage(
 			"--opt=o=noexec,nosuid,nodev,size=%d,nr_inodes=%d,uid=65534,gid=65534,mode=0755",
 			capacity,
 			// Allow security attributes in the tmpfs inode quota.
-			2*(staging.MaxFiles+1),
+			2*(entries+1),
 		),
 		name,
 	}
@@ -151,6 +147,14 @@ func (r *ContainerExecutor) newStage(
 	return stage, nil
 }
 
+func (r *ContainerExecutor) stageCapacity(readOnly bool) (int64, int64) {
+	payloadBytes, entries := r.policy.Staging.PayloadBytes, r.policy.Staging.Entries
+	if readOnly {
+		payloadBytes, entries = r.policy.Artifact.ExtractedBytes, r.policy.Artifact.StagingNodes
+	}
+	return payloadBytes + entries*int64(os.Getpagesize()), entries
+}
+
 func (s *ContainerStage) startKeeper(ctx context.Context, name, mode string, capacity int64) error {
 	mount := s.volume + ":/stage:" + mode + ",nocopy"
 	if s.runner.runtime == agentproto.RuntimePodman {
@@ -161,8 +165,10 @@ func (s *ContainerStage) startKeeper(ctx context.Context, name, mode string, cap
 		"--label=io.durpdeploy.agent="+s.runner.namespace,
 		"--network=none", "--read-only", "--cap-drop=ALL",
 		"--security-opt=no-new-privileges", "--user=65534:65534",
-		"--pids-limit=32", fmt.Sprintf("--memory=%d", capacity+(128<<20)),
-		"--cpus=1", "--volume="+mount, "--entrypoint=/usr/bin/tail",
+		fmt.Sprintf("--pids-limit=%d", s.runner.policy.Container.HelperPIDs),
+		fmt.Sprintf("--memory=%d", capacity+s.runner.policy.Container.HelperMemoryOverheadBytes),
+		"--cpus="+strconv.FormatFloat(s.runner.policy.Container.HelperCPUs, 'f', -1, 64),
+		"--volume="+mount, "--entrypoint=/usr/bin/tail",
 		stagingHelperImage, "-f", "/dev/null",
 	).Run()
 }
@@ -191,13 +197,13 @@ func (s *ContainerStage) Export(ctx context.Context, target io.Writer) error {
 	if err := command.Start(); err != nil {
 		return err
 	}
-	n, copyErr := io.Copy(target, io.LimitReader(stdout, (544<<20)+1))
+	n, copyErr := io.Copy(target, io.LimitReader(stdout, s.runner.policy.Staging.ArchiveBytes+1))
 	closeErr := stdout.Close()
 	waitErr := command.Wait()
 	if err := errors.Join(copyErr, closeErr, waitErr); err != nil {
 		return err
 	}
-	if n > 544<<20 {
+	if n > s.runner.policy.Staging.ArchiveBytes {
 		return ErrInvalidStepExecution
 	}
 	return nil

@@ -16,7 +16,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/DeveloperDurp/durpdeploy-agent/artifact"
 	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
 )
 
@@ -76,9 +75,8 @@ func (client *Client) sendStatus(
 			return 0, fmt.Errorf("create agent request: %w", err)
 		}
 		request.Header.Set("Content-Type", "application/json")
-		if path == agentproto.PollPath {
-			request.Header.Set("X-DurpDeploy-Staging", "staging/1")
-			request.Header.Set(artifact.CapabilityHeader, artifact.Capability)
+		if err := client.setPollCapabilities(path, request); err != nil {
+			return 0, err
 		}
 		if authorization != "" {
 			request.Header.Set("Authorization", authorization)
@@ -94,6 +92,10 @@ func (client *Client) sendStatus(
 			continue
 		}
 		if err := client.promotePin(response.TLS); err != nil {
+			_ = response.Body.Close()
+			return 0, err
+		}
+		if err := client.checkPollPolicy(path, response); err != nil {
 			_ = response.Body.Close()
 			return 0, err
 		}

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"os"
+
+	"github.com/DeveloperDurp/durpdeploy-agent/resourcepolicy"
 )
 
 // metadataReader bounds parser reads, including footer searches and re-reads.
@@ -39,6 +41,7 @@ func (r *metadataReader) ReadAt(buffer []byte, offset int64) (int, error) {
 func openZIP(
 	ctx context.Context,
 	filename string,
+	policy resourcepolicy.Artifact,
 ) (archive *zip.Reader, file *os.File, err error) {
 	file, err = os.Open(filename)
 	if err != nil {
@@ -54,10 +57,10 @@ func openZIP(
 	if err != nil {
 		return nil, file, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > MaxDownload {
+	if !info.Mode().IsRegular() || info.Size() > policy.DownloadBytes {
 		return nil, file, ErrInvalid
 	}
-	reader := &metadataReader{ctx: ctx, reader: file, remaining: MaxMetadata}
+	reader := &metadataReader{ctx: ctx, reader: file, remaining: policy.MetadataBytes}
 	archive, err = zip.NewReader(reader, info.Size())
 	// zip may convert a reader error into ErrFormat while locating its footer.
 	if reader.failure != nil {

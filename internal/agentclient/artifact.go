@@ -26,9 +26,11 @@ func (client *Client) Artifact(
 	claim agentproto.PollResponse,
 	pin artifact.Pin,
 ) (*os.File, error) {
-	if err := pin.Validate(); err != nil {
+	if err := pin.ValidateWithPolicy(client.ResourcePolicy().Artifact); err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(client.ResourcePolicy().Artifact.FetchTimeoutSeconds)*time.Second)
+	defer cancel()
 	body, err := json.Marshal(artifact.DownloadRequest{ClaimToken: claim.ClaimToken})
 	if err != nil {
 		return nil, err
@@ -40,10 +42,13 @@ func (client *Client) Artifact(
 	transport.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
-	transport.Transport = stagingTransport{
-		source: client.http.Transport, idleTimeout: 5 * time.Minute,
-	}
+	source := client.artifactTransport()
+	defer source.CloseIdleConnections()
+	transport.Transport = source
 	for attempt := 0; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		request, err := http.NewRequestWithContext(
 			ctx, http.MethodPost, endpoint, bytes.NewReader(body),
 		)
@@ -58,8 +63,8 @@ func (client *Client) Artifact(
 			}
 			continue
 		}
-		if err := client.promotePin(response.TLS); err != nil {
-			return nil, errors.Join(err, response.Body.Close())
+		if err := client.validateArtifactResponse(response); err != nil {
+			return nil, err
 		}
 		if retryableStatus(response.StatusCode) {
 			retryAfter := parseRetryAfter(
@@ -73,30 +78,54 @@ func (client *Client) Artifact(
 			}
 			continue
 		}
-		if response.StatusCode != http.StatusOK {
-			return nil, errors.Join(
-				&StatusError{Status: response.StatusCode}, response.Body.Close(),
-			)
-		}
-		file, receiveErr := client.receiveArtifact(response, pin)
-		closeErr := response.Body.Close()
+		file, retry, receiveErr := client.receiveArtifactResponse(
+			ctx, response, pin, attempt,
+		)
 		if receiveErr != nil {
-			var readError *artifactReadError
-			var localError *os.PathError
-			if closeErr == nil && errors.As(receiveErr, &readError) &&
-				!errors.As(receiveErr, &localError) {
-				if err := client.wait(ctx, attempt, 0); err != nil {
-					return nil, err
-				}
-				continue
-			}
-			return nil, errors.Join(receiveErr, closeErr)
+			return nil, receiveErr
 		}
-		if closeErr != nil {
-			return nil, errors.Join(closeErr, file.Close(), os.Remove(file.Name()))
+		if retry {
+			continue
 		}
 		return file, nil
 	}
+}
+
+// validateArtifactResponse permits only trusted success or retryable responses.
+func (client *Client) validateArtifactResponse(response *http.Response) error {
+	if err := client.promotePin(response.TLS); err != nil {
+		return errors.Join(err, response.Body.Close())
+	}
+	if response.StatusCode != http.StatusOK && !retryableStatus(response.StatusCode) {
+		return errors.Join(
+			&StatusError{Status: response.StatusCode}, response.Body.Close(),
+		)
+	}
+	return nil
+}
+
+// receiveArtifactResponse closes one response before returning a file or retry.
+func (client *Client) receiveArtifactResponse(
+	ctx context.Context,
+	response *http.Response,
+	pin artifact.Pin,
+	attempt int,
+) (*os.File, bool, error) {
+	file, receiveErr := client.receiveArtifact(response, pin)
+	closeErr := response.Body.Close()
+	if receiveErr != nil {
+		var readError *artifactReadError
+		var localError *os.PathError
+		if closeErr == nil && errors.As(receiveErr, &readError) &&
+			!errors.As(receiveErr, &localError) {
+			return nil, true, client.wait(ctx, attempt, 0)
+		}
+		return nil, false, errors.Join(receiveErr, closeErr)
+	}
+	if closeErr != nil {
+		return nil, false, errors.Join(closeErr, file.Close(), os.Remove(file.Name()))
+	}
+	return file, false, nil
 }
 
 type artifactReadError struct{ error }

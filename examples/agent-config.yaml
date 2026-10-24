@@ -1,0 +1,39 @@
+# Complete startup configuration example. Resource values must retain defaults.
+# Empty legacy values retain their existing startup meanings.
+state_dir: ""
+listen_addr: ""
+version: ""
+hostname: ""
+execution_boundary: ""
+extra_scrub_patterns: ""
+container:
+  enabled: ""
+  runtime: ""
+  socket: ""
+limits:
+  execution:
+    max_retries: 10
+    max_timeout_seconds: 86400
+    default_timeout_seconds: 300
+  artifact:
+    download_bytes: 314572800
+    extracted_bytes: 536870912
+    files: 10000
+    staging_nodes: 19999
+    metadata_bytes: 16777216
+    fetch_timeout_seconds: 300
+    dial_timeout_seconds: 30
+    tls_timeout_seconds: 10
+    header_timeout_seconds: 30
+  staging:
+    payload_bytes: 536870912
+    entries: 20000
+    archive_bytes: 570425344
+  transfer:
+    idle_timeout_seconds: 300
+  container:
+    pids: 128
+    tmpfs_bytes: 67108864
+    helper_pids: 32
+    helper_cpus: 1
+    helper_memory_overhead_bytes: 134217728

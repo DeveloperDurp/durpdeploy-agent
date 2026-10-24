@@ -19,7 +19,7 @@ const (
 	zipFile
 )
 
-func validateZIPEntry(entry *zip.File, kinds map[string]zipNodeKind) error {
+func validateZIPEntry(entry *zip.File, kinds map[string]zipNodeKind, maxNodes int64) error {
 	name, err := zipEntryName(entry.Name)
 	if err != nil {
 		return err
@@ -36,7 +36,7 @@ func validateZIPEntry(entry *zip.File, kinds map[string]zipNodeKind) error {
 	if mode.IsDir() {
 		kinds[name] = zipDirectory
 	}
-	if len(kinds) > MaxStagingNodes {
+	if int64(len(kinds)) > maxNodes {
 		return ErrInvalid
 	}
 	for parent := path.Dir(name); parent != "."; parent = path.Dir(parent) {
@@ -47,7 +47,7 @@ func validateZIPEntry(entry *zip.File, kinds map[string]zipNodeKind) error {
 		} else {
 			kinds[parent] = zipImplicitDirectory
 		}
-		if len(kinds) > MaxStagingNodes {
+		if int64(len(kinds)) > maxNodes {
 			return ErrInvalid
 		}
 	}

@@ -9,22 +9,25 @@ import (
 
 	"github.com/DeveloperDurp/durpdeploy-agent/executor"
 	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
+	"github.com/DeveloperDurp/durpdeploy-agent/resourcepolicy"
 	"github.com/DeveloperDurp/durpdeploy-agent/state"
 	"github.com/DeveloperDurp/durpdeploy-agent/transport"
 )
 
 // Client makes only outbound HTTP requests to the configured agent server.
 type Client struct {
-	serverURL    string
-	stateDir     string
-	agentID      agentproto.AgentID
-	agentVersion agentproto.AgentVersion
-	protocol     agentproto.ProtocolVersion
-	interpreters []executor.Interpreter
-	container    *executor.ContainerExecutor
-	identity     agenttls.Identity
-	http         *http.Client
-	state        agentstate.State
+	serverURL       string
+	stateDir        string
+	agentID         agentproto.AgentID
+	agentVersion    agentproto.AgentVersion
+	protocol        agentproto.ProtocolVersion
+	interpreters    []executor.Interpreter
+	container       *executor.ContainerExecutor
+	startupSettings *executor.StartupSettings
+	resourcePolicy  *resourcepolicy.Limits
+	identity        agenttls.Identity
+	http            *http.Client
+	state           agentstate.State
 
 	mu     sync.Mutex
 	pins   []agenttls.Fingerprint

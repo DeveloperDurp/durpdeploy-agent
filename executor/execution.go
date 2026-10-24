@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"time"
 
 	"github.com/DeveloperDurp/durpdeploy-agent/protocol"
+	"github.com/DeveloperDurp/durpdeploy-agent/resourcepolicy"
 )
 
 // Step is one immutable step from a release snapshot.
@@ -68,6 +70,14 @@ func (s Step) MarshalForProtocol(
 
 var ErrInvalidStepExecution = errors.New("invalid step execution configuration")
 
+// ValidateLimits rejects invalid snapshot values before narrowing conversions.
+func (s Step) ValidateLimits(policy resourcepolicy.Execution) error {
+	if s.TimeoutSeconds < 0 || s.TimeoutSeconds > math.MaxInt64/int64(time.Second) {
+		return resourcepolicy.ErrExecutionLimits
+	}
+	return policy.ValidateStep(time.Duration(s.TimeoutSeconds)*time.Second, s.MaxRetries)
+}
+
 func (s Step) ValidateExecution() error {
 	mode := s.ExecutionMode
 	if mode == "" {
@@ -120,6 +130,11 @@ func (e *Executor) ExecuteSteps(
 	ctx context.Context,
 	config ExecutionConfig,
 ) error {
+	for _, step := range config.Steps {
+		if err := step.ValidateLimits(e.executionPolicy); err != nil {
+			return err
+		}
+	}
 	for _, step := range config.Steps {
 		callbacks := Callbacks{}
 		if config.CallbacksForStep != nil {

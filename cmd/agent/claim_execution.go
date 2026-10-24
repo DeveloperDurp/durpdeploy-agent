@@ -33,7 +33,7 @@ func executeClaim(
 	if err != nil {
 		return err
 	}
-	payload, err := decodePayload(plaintext, int64(claim.DeploymentID))
+	payload, err := decodePayloadWithResourcePolicy(plaintext, int64(claim.DeploymentID), client.ResourcePolicy())
 	if err != nil {
 		return err
 	}
@@ -106,12 +106,7 @@ func executeClaim(
 		stage, err = newJobStaging(executionCtx, client, claim)
 	}
 	if err == nil {
-		executor := newExecutor()
-		if client.ContainerExecutor() != nil {
-			executor = runner.NewExecutorWithContainers(
-				client.ContainerExecutor(),
-			)
-		}
+		executor := newExecutor(client)
 		config := runner.ExecutionConfig{
 			DeploymentID: int64(claim.DeploymentID),
 			Steps:        payload.Release.Steps,
